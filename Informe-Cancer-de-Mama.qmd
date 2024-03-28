@@ -57,24 +57,24 @@ library(tidyverse)
 library(reshape2)
 library(MASS)
 
-data <- read.csv(file = "datos_p1.csv", sep = ";", dec=",")
+data <- read.csv(file = "data_p1.csv", sep = ";", dec=",")
 ```
 
-# Pre-procesamiento de los Datos
+# Pre-procesamiento de los data
 
 ## Justificación
 
 Esta sección pretende abordar la etapa más crucial de todo el proceso de *Machine Learning* (ML), el curado de los datos, también conocido como pre-procesamiento. Este paso no es simplemente un prefacio al modelo predictivo, sino una fase determinante en la construcción de un modelo de aprendizaje automático robusto y eficaz. 
 
-El preprocesamiento de datos es esencial para transformar el aprendizaje automático en un proceso analítico y estructurado. Más allá de la mera alimentación de un algoritmo con datos crudos, esta fase crítica abarca la limpieza, normalización, transformación y extracción de características necesarias. Estas acciones previas al aprendizaje modelan los datos para minimizar distorsiones y anomalías, preservando la integridad del proceso de aprendizaje y fortaleciendo la precisión de los modelos predictivos resultantes, demostrando que la eficacia del modelo está intrínsecamente ligada a la calidad del preprocesamiento aplicado al conjunto de datos original [@8877011]. 
+El preprocesamiento de datos es esencial para transformar el aprendizaje automático en un proceso analítico y estructurado. Más allá de la mera alimentación de un algoritmo con data crudos, esta fase crítica abarca la limpieza, normalización, transformación y extracción de características necesarias. Estas acciones previas al aprendizaje modelan los datos para minimizar distorsiones y anomalías, preservando la integridad del proceso de aprendizaje y fortaleciendo la precisión de los modelos predictivos resultantes, demostrando que la eficacia del modelo está intrínsecamente ligada a la calidad del preprocesamiento aplicado al conjunto de data original [@8877011]. 
 
-## Exploración de las Variables
+## Análisis Exploratorio
 
-El fichero de datos crudos, facilitado por el Dr. José Manuel Jerez Aragonés, se trata de un fichero `.csv` con una serie de variables detalladas en la @fig-desccol.
+El fichero de data crudos, facilitado por el Dr. José Manuel Jerez Aragonés, se trata de un fichero `.csv` con una serie de variables detalladas en la @fig-desccol.
 
 ![Descripción de las variables.](preprocesamiento.png){#fig-desccol fig-align="center"}
 
-Generalmente, se descartarían las variables que no guardan una obvia relevancia clínica con respecto a la variable objetivo (**PCR**), en este caso, la variable **Muestra**. Antes de eliminar esta variable, se puede observar que hay diferentes caracteres comunes a las muestras de varios pacientes, estos caracteres representan el estudio al que pertenece el dato, y esto sí que puede tener importancia clínica, ya que podría ayudarnos a comprender si los pacientes de un estudio determinado guardan algún tipo de relación estadística, introduciendo así un posible sesgo en los datos cuya fuerza dependerá de la cantidad de pacientes de ese estudio concreto. Es por esto que se va a crear la variable **Estudio**.
+Generalmente, se descartarían las variables que no guardan una obvia relevancia clínica con respecto a la variable objetivo (**PCR**), en este caso, la variable **Muestra**. Antes de eliminar esta variable, se puede observar que hay diferentes caracteres comunes a las muestras de varios pacientes, estos caracteres representan el estudio al que pertenece el dato, y esto sí que puede tener importancia clínica, ya que podría ayudarnos a comprender si los pacientes de un estudio determinado guardan algún tipo de relación estadística, introduciendo así un posible sesgo en los data cuya fuerza dependerá de la cantidad de pacientes de ese estudio concreto. Es por esto que se va a crear la variable **Estudio**.
 
 ```{r}
 #| warning: false
@@ -87,7 +87,7 @@ data$Estudio <- ifelse(grepl("^PERU", data$Muestra), "PERU",
 data$Muestra <- NULL
 ```
 
-Finalmente, se guardarán en un vector las variables cateóricas, y en otro, las numéricas. Este bloque se código se repetirá varias veces durante la limpieza de datos, ya que la naturaleza de algunas variables puede cambiar. 
+Finalmente, se guardarán en un vector las variables cateóricas, y en otro, las numéricas. Este bloque se código se repetirá varias veces durante la limpieza de data, ya que la naturaleza de algunas variables puede cambiar. 
 
 ```{r}
 #| warning: false
@@ -98,7 +98,277 @@ categoricas <- colnames(data)[!colnames(data) %in% numericas]
 
 ### Exploración de variables categóricas
 
+```{r}
+obtener_estadisticas_categoricas <- function(data, variable) {
+  # Calcular frecuencias
+  frecuencias <- table(data[[variable]])
+  
+  # Calcular porcentajes
+  porcentajes <- prop.table(frecuencias) * 100
+  
+  # Crear un data.frame con los resultados
+  estadisticas_df <- data.frame(
+    Categoria = names(frecuencias),
+    Frecuencia = as.integer(frecuencias),
+    Porcentaje = round(porcentajes, 2)
+  )
+  
+  return(estadisticas_df)
+}
 
+graficar_barras_categoricas <- function(estadisticas_df, variable) {
+  # Generar gráfico de barras usando ggplot2
+  p <- ggplot(estadisticas_df, aes(x = Categoria, y = Frecuencia, fill = Categoria)) +
+    geom_bar(stat = "identity") +
+    theme_minimal() +
+    labs(title = paste("Distribución de la variable", variable),
+         x = variable,
+         y = "Frecuencia") +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  
+  return(p)
+}
+
+# Aplicar la función a cada variable categórica y almacenar los resultados
+resultados <- lapply(categoricas, function(var) obtener_estadisticas_categoricas(data, var))
+```
+
+
+::: {.panel-tabset}
+## REst
+
+```{r}
+# | echo: false
+# | message: false
+# | warning: false
+# | error: false
+
+graficar_barras_categoricas(resultados[[1]], categoricas[1])
+```
+
+Se puede apreciar una pequeña cantidad de valores indefinidos (*I*). Estos serán imputados con la moda. 
+
+```{r}
+# | echo: false
+# | message: false
+# | warning: false
+# | error: false
+
+data <- data %>%
+  mutate(`REst` = recode(`REst`,
+                         `I` = NA_character_))
+```
+
+## RPro
+
+```{r}
+# | echo: false
+# | message: false
+# | warning: false
+# | error: false
+
+graficar_barras_categoricas(resultados[[2]], categoricas[2])
+```
+
+Se puede apreciar una pequeña cantidad de valores indefinidos (*I*). Estos serán imputados con la moda. 
+
+```{r}
+# | echo: false
+# | message: false
+# | warning: false
+# | error: false
+
+data <- data %>%
+  mutate(`RPro` = recode(`RPro`,
+                         `I` = NA_character_))
+```
+
+
+## Her2
+
+```{r}
+# | echo: false
+# | message: false
+# | warning: false
+# | error: false
+
+graficar_barras_categoricas(resultados[[3]], categoricas[3])
+```
+
+Se puede apreciar una pequeña cantidad de valores indefinidos (*I*). Estos serán imputados con la moda. Adicionalmente, podemos observar que las clases principales de esta variable están muy desbalanceadas, por lo que en un futuro tal vez se debe tomar una decisión sobre si estos data pueden llegar a aportar algo a las conclusiones del proyecto. 
+
+```{r}
+# | echo: false
+# | message: false
+# | warning: false
+# | error: false
+
+data <- data %>%
+  mutate(`Her2` = recode(`Her2`,
+                         `I` = NA_character_))
+```
+
+
+## Estadio
+
+```{r}
+# | echo: false
+# | message: false
+# | warning: false
+# | error: false
+
+graficar_barras_categoricas(resultados[[4]], categoricas[4])
+```
+
+La cantidad de muestras en *T0* es demasiado baja, debido a esto, para que tengan algo de significancia, se combinarán con las de *T1* para crear la nueva clase, *T0-T1*. 
+
+```{r}
+# | echo: false
+# | message: false
+# | warning: false
+# | error: false
+
+data <- data %>%
+  mutate(`Estadio` = recode(`Estadio`,
+                         `T0` = "T1"))
+data <- data %>%
+  mutate(`Estadio` = recode(`Estadio`,
+                         `T1` = "T0-T1"))
+```
+
+
+## NodAfec
+
+```{r}
+# | echo: false
+# | message: false
+# | warning: false
+# | error: false
+
+graficar_barras_categoricas(resultados[[5]], categoricas[5])
+```
+
+Los data de la variable *NodAfec* parecen estar en orden. 
+
+## Fenotipo
+
+```{r}
+# | echo: false
+# | message: false
+# | warning: false
+# | error: false
+
+graficar_barras_categoricas(resultados[[6]], categoricas[6])
+```
+
+Los data de la variable *Fenotipo* parecen estar en orden. 
+
+## Estudio
+
+```{r}
+# | echo: false
+# | message: false
+# | warning: false
+# | error: false
+
+graficar_barras_categoricas(resultados[[7]], categoricas[7])
+```
+
+Podemos observar que el criterio de clasificación ha marcado el tipo de estudio en *otros* para la mayoría de muestras. Se tendrá en cuenta este dato para futuros análisis. 
+
+## Grado
+
+Adicionalmente, se codificará la variable *Grado* como categórica con la finalidad de no dar más importancia a valores de grado más alto. 
+
+```{r}
+# | echo: false
+# | message: false
+# | warning: false
+# | error: false
+
+data$Grado <- as.character(data$Grado)
+data <- data %>%
+  mutate(`Grado` = recode(`Grado`,
+                         `1` = "I",
+                         `2` = "II",
+                         `3` = "III"))
+```
+:::
+
+
+Finalmente, se actualizará la lista de variables categóricasy numéricas, además de recodificar las variables a tipo *factor*. 
+
+```{r}
+# | echo: false
+# | message: false
+# | warning: false
+# | error: false
+
+numericas <- colnames(data)[sapply(data, is.numeric)]
+categoricas <- colnames(data)[!colnames(data) %in% numericas]
+
+for(columna in categoricas) {
+  data[[columna]] <- as.factor(data[[columna]])
+}
+
+```
+
+### Exploración de variables numéricas
+
+El conjunto de datos solo contiene dos variables numéricas, *Edad* y *PCR*. Para poder realmente sacar una conclusión de este apartado, he considerado que podría ser interesante comprobar si la distirbución de estas variables se mantiene similar independientemente del estudio llevado a cabo. Esto podría a comprender  
+
+::: {.panel-tabset}
+
+## Edad y Estudio
+```{r}
+# | label: fig-dist-estudio-edad
+# | fig.cap: "Distribución de la variable 'Edad' con respecto a 'Estudio'"
+# | out.width: '80%'
+# | fig.align: 'center'
+
+
+ggplot(data, aes(x = Estudio, y = Edad, fill = Estudio)) + 
+  geom_boxplot() + 
+  labs(title = "Distribución de Edad por Nivel de Estudio",
+       x = "Nivel de Estudio",
+       y = "Edad") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+```
+
+En el gráfico de barras generado en la parte superior podemos observar que la distribución de la variable edad se mantiene a lo largo de los estudios. No hay ningún estudio incluído en el conjunto de datos que presente un sesgo desmedido en esta variable. Se pueden observar aún así una cantidad razonable de valores atípicos en los grupos *M* y *otros*, sin embargo, podemos atribuir esto a que son los dos conjuntos más grandes, así que es más probable que haya algún error humano en estos; no se prestará atención ya que esos valores atípicos no parecen estar fuera de lo clínicamente razonable en el contexto de este estudio (edades por debajo de 100 o por encima de 10). 
+
+## PCR y Estudio
+```{r}
+# | label: fig-dist-estudio-edad
+# | fig.cap: "Distribución de la variable 'Edad' con respecto a 'Estudio'"
+# | out.width: '80%'
+# | fig.align: 'center'
+# | warning: false
+# | message: false
+# | echo: false
+
+
+df_summary <- data %>%
+  filter(!is.na(PCR)) %>%  
+  group_by(Estudio) %>%
+  summarise(Proporcion = mean(PCR == 1, na.rm = TRUE))  
+
+ggplot(df_summary, aes(x = Estudio, y = Proporcion, fill = Estudio)) + 
+  geom_bar(stat = "identity") + 
+  labs(title = "Proporción de valores positivos de PCR por Nivel de Estudio",
+       x = "Nivel de Estudio",
+       y = "Proporción de PCR positivos") +
+  theme_minimal() +
+  theme(legend.position = "none", 
+        axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+Podemos observar que el 50% de valores positivos de *PCR* se encuentran en los gripos *LBJ* y *otros*. Los 3 grupos restantes se dividen el resto de muestras positivas casi equitativamente, con una clara carencia de valores positivos en el grupo *Spain*. 
+
+:::
 
 
 

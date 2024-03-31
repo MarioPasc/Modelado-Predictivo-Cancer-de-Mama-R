@@ -460,24 +460,7 @@ Podemos observar que los datos han sido imputados con éxito.
 La pipeline programada ad-hoc para el pre-procesamiento de estos datos es simple, pero cumple con su propósito. Terminamos con un dataset sin valores faltantes ni redundantes y con las variables necesarias para poder construir un modelo predictivo sólido. 
 
 ```{r}
-datatable(df_imputado, options = list(
-  pageLength = 10,
-  scrollX = TRUE,
-  dom = 'Bfrtip',  # Esta opción habilita los botones y los elementos de la tabla
-  buttons = c('copy', 'csv'),
-  scrollX = TRUE,     # Habilita el desplazamiento horizontal
-  scrollY = TRUE,     # Habilita el desplazamiento vertical
-  searching = TRUE,   # Permite al usuario buscar en la tabla
-  ordering = TRUE,    # Permite ordenar cada columna
-  info = TRUE,        # Muestra información del número de filas, páginas, etc.
-  responsive = TRUE,  # Hace que la tabla sea responsiva
-  autoWidth = TRUE,  
-  initComplete = JS(
-    "function(settings, json) {", 
-    "$(this.api().table().header()).css({'background-color': 'white', 'color': 'black'});",
-    "$('.dataTables_wrapper').css('background-color', 'white');",
-    "}")
-))
+knitr::kable(head(df_imputado, 10))
 ```
 
 
@@ -489,12 +472,11 @@ datatable(df_imputado, options = list(
 
 En el desarrollo de modelos predictivos, es fundamental adoptar un enfoque que permita evaluar de manera precisa y confiable el rendimiento del modelo propuesto. Se empleará un enfoque inicial que involucra la construcción de un **modelo de regresión logística** utilizando el conjunto completo de datos, esta decisión metodológica permite capturar una visión integral de las tendencias y patrones subyacentes sin la segmentación previa en conjuntos de entrenamiento y prueba. Al utilizar todo el conjunto de datos, buscamos evaluar la capacidad del modelo para aprender y predecir dentro del mismo contexto de los datos disponibles, reconociendo que este paso constituye solo la etapa inicial de un proceso de evaluación más exhaustivo.
 
-```{r}
-# No realizamos holdout
+```{r, warning=FALSE}
 target <- df_imputado$PCR
 data <- df_imputado[, !names(df_imputado) %in% "PCR"]
 
-lr_model <- glm(target ~ ., data=df_imputado, family="binomial")
+lr_model <- glm(PCR ~ ., data=df_imputado, family="binomial")
 predicciones <- predict(lr_model, type = "response")
 
 pred <- data.frame(
@@ -503,8 +485,7 @@ pred <- data.frame(
 )
 
 threshold = 0.5
-predicciones_truncadas <- ifelse(predicciones < threshold, 0, 1)
-
+predicciones_truncadas_inicial <- ifelse(predicciones < threshold, 0, 1)
 ```
 
 Mediante predicciones se realizará el cálculo de métricas clave como la precisión, exactitud (accuracy) y sensibilidad (recall), se pretende obtener una primera estimación del rendimiento del modelo. 
@@ -537,7 +518,7 @@ plot_confMat <- function(predicciones_truncadas, target) {
   return(conf_mat)
 }
 
-plot_confMat(predicciones_truncadas, target)
+plot_confMat(predicciones_truncadas_inicial, target)
 
 ```
 
@@ -545,7 +526,7 @@ plot_confMat(predicciones_truncadas, target)
 En la salida del bloque de código superior podemos observar la matriz de confusión de la evaluación inicial del modelo. 
 
 ```{r}
-calcular_y_mostrar_metricas <- function(target, predicciones_truncadas) {
+calcular_metricas <- function(target, predicciones_truncadas) {
   TP <- sum(predicciones_truncadas == 1 & target == 1)
   TN <- sum(predicciones_truncadas == 0 & target == 0)
   FP <- sum(predicciones_truncadas == 1 & target == 0)
@@ -558,18 +539,13 @@ calcular_y_mostrar_metricas <- function(target, predicciones_truncadas) {
   
   df_medidas <- data.frame(
     Metric = c("Accuracy", "Precision", "Recall", "F1 Score"),
-    Value = round(c(Accuracy, Precision, Recall, F1score), 3)
+    Value = c(Accuracy, Precision, Recall, F1score)
   )
   
-  datatable(df_medidas, options = list(
-    initComplete = JS(
-      "function(settings, json) {", 
-      "$(this.api().table().header()).css({'background-color': 'white', 'color': 'black'});",
-      "$('.dataTables_wrapper').css('background-color', 'white');",
-      "}"))
-  )
+  return(df_medidas)
 }
-calcular_y_mostrar_metricas(target, predicciones_truncadas)
+
+calcular_metricas(target, predicciones_truncadas_inicial)
 ```
 
 Apoyándonos en la matriz de confusión y en las métricas generadas en el bloque de código superior podemos concluir:
@@ -589,7 +565,7 @@ Como se ha comentado anteriormente, la manera más efectiva de aumentar la medid
 
 ### Análisis de Asociación
 
-Como se ha comentado anteriormente, la selección de características es una etapa importante en el desarrollo de modelos predictivos, ya que las variables incorrectas pueden introducir ruido y desviar la precisión del modelo. Este análisis se presentará visualmente (ver @fig-asoc para más detalles) y se archivará detalladamente, proporcionando una base transparente y empírica para la inclusión o exclusión de características. 
+Como se ha comentado anteriormente, la selección de características es una etapa importante en el desarrollo de modelos predictivos, ya que las variables incorrectas pueden introducir ruido y desviar la precisión del modelo. Este análisis se presentará visualmente y se archivará detalladamente, proporcionando una base transparente y empírica para la inclusión o exclusión de características. 
 
 ```{r, label=asociacion, fig.width=9, fig.height=6}
 source("./calculaPValor.R")
@@ -609,16 +585,16 @@ ultimo_plot <- ggplot(resultados, aes(x = VariableX, y = VariableY, fill = Valor
         axis.title.y = element_text(size = 14),
         plot.title = element_text(hjust = 0.5),
         plot.margin = margin(t = 1, r = 1, b = 1, l = 1, unit = "cm")) 
-```
-![Mapa de calor. Análisis de Asociación](figs/asociacion-1.png){#fig-asoc fig-align="center"}
 
-Observando entonces la @fig-asoc, podemos concluir que las variables `Fenotipo`, `Grado`, `REst` y `RPro` parecen guardar una significancia estadística fuerte con la variable objetivo, `PCR`, por lo que son excelentes candidatas para componer un modelo. Se procederá entonces a partir de estas variables y emplear la función `stepAIC` para descubrir si hay alguna configuración específica de estas variables que proporcione un modelo más correcto. 
+ultimo_plot
+```
+
+Observando entonces la figura superior, podemos concluir que las variables `Fenotipo`, `Grado`, `REst` y `RPro` parecen guardar una significancia estadística fuerte con la variable objetivo, `PCR`, por lo que son excelentes candidatas para componer un modelo. Se procederá entonces a contrastar la matriz de confusión del modelo entrenado con todas las variables y el modelo entrenado solo con estas. 
 
 ### Modelo ajustado 
 
 ```{r}
-
-lr_model_ajustado <- glm(target ~ Fenotipo + Grado + REst + RPro, data=df_imputado, family="binomial")
+lr_model_ajustado <- glm(PCR ~ Fenotipo + Grado + REst + RPro, data=df_imputado, family="binomial")
 predicciones <- predict(lr_model_ajustado, type = "response")
 
 pred <- data.frame(
@@ -631,20 +607,7 @@ predicciones_truncadas_ajustado <- ifelse(predicciones < threshold, 0, 1)
 
 ```
 
-### Reajuste stepwise
 
-```{r}
-fine_tuned <- stepAIC(lr_model_ajustado, direction="both")
-predicciones <- predict(fine_tuned, type = "response")
-
-pred <- data.frame(
-  y_true = target,
-  y_pred = predicciones
-)
-
-threshold = 0.5
-predicciones_truncadas_stepwise <- ifelse(predicciones < threshold, 0, 1)
-```
 
 ### Conclusión
 
@@ -655,8 +618,8 @@ predicciones_truncadas_stepwise <- ifelse(predicciones < threshold, 0, 1)
 #|   - "Matriz del Confusión del modelo con características seleccionadas y algoritmo stepwise aplicado"
 
 
+plot_confMat(predicciones_truncadas_inicial, target)
 plot_confMat(predicciones_truncadas_ajustado, target)
-plot_confMat(predicciones_truncadas_stepwise, target)
 
 ```
 
@@ -686,31 +649,238 @@ holdout_split <- function(df, validation_size, test_size) {
   test_indices <- indices[(validation_rows + 1):(validation_rows + test_rows)]
   train_indices <- indices[(validation_rows + test_rows + 1):total_rows]
 
-  # Crear los conjuntos de datos
-  train_set <- df[train_indices, ]
-  validation_set <- df[validation_indices, ]
-  test_set <- df[test_indices, ]
+  return(list(train = train_indices, 
+              validation = validation_indices, 
+              test = test_indices))
+}
 
+holdout_sets <- function(df, indices) {
+  train_set <- df[indices$train, ]
+  validation_set <- df[indices$validation, ]
+  test_set <- df[indices$test, ]
   return(list(train = train_set, validation = validation_set, test = test_set))
 }
 
-splits = holdout_split(df = df_imputado,
+
+splits_indices = holdout_split(df = df_imputado,
                        validation_size = .2,
-                       test_size = .1)
-train = splits[1]
-val = splits[2]
-test = splits[3]
+                       test_size = .15)
+
+splits = holdout_sets(df = df_imputado, 
+                      indices=splits_indices)
+train_set = splits[1]
+val_set = splits[2]
+test_set = splits[3]
 ```
 
+#### Evaluación HoldOut
+
+Habiendo creado entonces los conjuntos de entrenamiento, validación y prueba, se va a proceder a programar una función que reciba los índices generados aleatoriamente para mostrar la distribución de la variable objetivo en los diferentes subconjuntos. 
+
+```{r}
+plot_distribution <- function(df, target, indices) {
+  # Obtener los conjuntos de datos basados en los índices
+  sets <- holdout_sets(df, indices)
+  pcr_distribution <- lapply(sets, function(set) table(set[[target]]))
+  
+  # Crear un data.frame para visualización
+  df_vis <- data.frame(
+    Group = rep(c("Train", "Validation", "Test"), each = 2),
+    PCR = rep(c("0", "1"), 3),
+    Count = unlist(lapply(pcr_distribution, function(x) c(x['0'], x['1'])))
+  )
+  
+  # Generar el gráfico de barras
+  ggplot(df_vis, aes(fill = PCR, y = Count, x = Group)) +
+    geom_bar(position = "dodge", stat = "identity") +
+    labs(x = "Conjunto", y = "Cantidad de muestras", fill = paste(target, "Value", sep=" ")) +
+    theme_minimal() +
+    scale_fill_manual(values = c("0" = "skyblue", "1" = "salmon")) +
+    geom_text(aes(label = Count), position = position_dodge(width = 0.9), vjust = -0.25)
+}
+
+plot_distribution(df = df_imputado,
+                  target= "PCR",
+                  indices = splits_indices)
+```
+
+Como podemos observar, el desbalance de las clases de la variable `PCR` es evidente. En ninguno de los subconjuntos generados se ha conseguido llegar como mínimo al 50% de muestras de `PCR=1` sobre la cantidad de `PCR=0`. Este desbalance se hará entonces evidente en las medidas de precision y recall. La medida precision tendrá un valor bajo por la pobre cantidad de muestras `PCR=1`, haciendo que las que el modelo identifique, las clasifique mal. Recall, por otra parte, tendrá un valor bajo, ya que el modelo no conseguirá distinguir las clases `PCR=1` de `PCR=0` por el sesgo introducido debido al desbalance de datos. 
+
+#### Rendimiento del modelo mediante el método HoldOut
+
+Podemos evidenciar este comportamiento observando las matrices de confusión resultantes de evaluar el modelo para cada conjunto de datos, siendo entrenado solo con el conjunto de entrenamiento. 
+
+```{r, warning=FALSE}
+evaluate_model <- function(df, target_name, indices_list, threshold = 0.5) {
+  # Separar los conjuntos de datos usando los índices
+  splits <- holdout_sets(df, indices_list)
+  
+  # Ajustar el modelo glm con el conjunto de entrenamiento
+  formula_glm <- as.formula(paste(target_name, "~ Fenotipo + Grado + REst + RPro"))
+  model <- glm(formula_glm, data = splits$train, family = binomial())
+
+  # Inicializar una lista para almacenar los resultados
+  results <- list()
+
+  # Para cada conjunto (train, validation, test), calcular la matriz de confusión y métricas
+  for (set_name in names(splits)) {
+    # Extraer el conjunto de datos actual
+    set <- splits[[set_name]]
+    
+    predicciones <- predict(model, newdata = set, type = "response")
+    predicciones_truncadas <- ifelse(predicciones < threshold, 0, 1)
+    results[[paste(set_name, "conf_mat", sep = "_")]] <- plot_confMat(predicciones_truncadas, set[[target_name]])
+    
+    # Calcular y almacenar métricas
+    metrics <- calcular_metricas(set[[target_name]], predicciones_truncadas)
+    results[[paste(set_name, "metrics", sep = "_")]] <- metrics
+  }
+  
+  results[["test_target_distribution"]] <- table(splits$test[[target_name]])
+  
+  return(results)
+}
+
+results <- evaluate_model(df_imputado, "PCR", splits_indices, threshold = 0.5)
+```
+
+De esta forma hemos podido obtener las matrices de confusión del modelo, así como las métricas de rendimiento para cada subconjunto de datos. Para poder evaluar estas dos medidas y su coherencia con lo anteriormente estimado, podemos representar gráficamente ambos resultados:
+
+```{r}
+compare_metrics_graphically <- function(metrics_list) {
+  metrics_df <- do.call(rbind, lapply(names(metrics_list), function(set_name) {
+    set_metrics <- metrics_list[[set_name]]
+    set_metrics$Set <- gsub("_metrics", "", set_name)  
+    return(set_metrics)
+  }))
+  
+  metrics_df$Set <- factor(metrics_df$Set, levels = c("train", "validation", "test"))
+  
+  # Usar ggplot para crear el gráfico de barras
+  ggplot(metrics_df, aes(x = Metric, y = Value, fill = Set)) +
+    geom_bar(stat = "identity", position = position_dodge(width = 0.7)) +
+    labs(title = "Comparación de Métricas de Modelo por Conjunto",
+         x = "Métrica", y = "Valor") +
+    theme_minimal() +
+    scale_fill_brewer(palette = "Dark2") +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+}
+
+metrics_list <- list(
+  train_metrics = results$train_metrics,
+  validation_metrics = results$validation_metrics,
+  test_metrics = results$test_metrics
+)
+
+results$test_metrics
+
+compare_metrics_graphically(metrics_list)
+```
+
+::: {.panel-tabset}
+
+## ConfMat Train
+```{r}
+print(results$train_conf_mat)
+```
+El valor de precisión obtenido en entrenamiento no es significativo sin tener en cuenta el bajo valor de recall. Un ejemplo similar pero más extremo ocurre con el conjunto de test. Para una explicación más detallada, consultar `ConfMat test`. 
+
+## ConfMat Validation
+
+```{r}
+print(results$validation_conf_mat)
+```
+## ConfMat Test
+
+```{r}
+print(results$test_conf_mat)
+```
+Apoyándonos en la gráfica de las medidas de rendimiento para cada conjunto de datos, podemos concluir que el valor de precisión perfecto para el conjunto de test es algo engañoso, ya que hay muy pocas muestras positivas para PCR, pero de estas pocas muestras (12), las que han sido identificadas como `PCR=1` por el modelo (2) han sido correctamente clasificadas (Verdadero Positivo). 
+
+Esto queda evidenciado también en la medida de recall, que es baja ya que de 12 muestras PCR positivas, el modelo ha clasificado como `PCR=0` 10 de ellas (Falso Negativo).  
+
+:::
 
 
+Como podemos observar, la hipótesis de partida se ha comprobado, el método HoldOut ha mejorado los resultados con respecto a nuestra evaluación inicial sin la división del conjunto. La precisión y el recall han aumentado ligeramente, concordando con las limitaciones que se mencionaron anteriormente, la medida accuracy sigue siendo engañosa sobre la verdadera eficacia del modelo para poder clasificar correctamente las muestras. El conjunto de test, al ser tan pequeño y tan desbalanceado, es poco representativo. 
+
+Esta faceta engañosa de la medida de accuracy y la facilidad en la que la medida F1-Score puede ser muy cercana a cero cuando no hay datos suficientes justifica la necesidad de introducir una **nueva medida** para la evaluación de nuestro modelo. La curva **Receiver Operating Characteristic (ROC)** y el **Area Under the Curve (AUC)**. 
+
+### Curva ROC
+
+La curva ROC representa la Sensibilidad (tasa de verdaderos positivos) frente a 1-Especificidad (tasa de falsos positivos) del modelo para diferentes umbrales (thresholds). Esta curva tiene asociada una medida, el Área Bajo la Curva (AUC), que representa el área encerrada bajo la curva ROC. Matemáticamente, se puede demostrar que este área tendrá un valor entre 0 y 1, siendo 1 un indicativo de un clasificador perfecto, 0.5 el rendimiento de un clasificador aleatorio, y un valor menor a 0.5 podría indicar que las predicciones están desacertadas respecto a las etiquetas verdaderas, pero al invertir las decisiones del clasificador, se obtendría un modelo con un rendimiento mejor que el aleatorio.
+
+```{r, warning=FALSE}
+plot_roc_curve <- function(df, target_name, indices_list, set_name) {
+  # Separar los conjuntos de datos usando los índices
+  splits <- holdout_sets(df, indices_list)
+  
+  # Verificar si el nombre del conjunto es válido
+  if (!set_name %in% c("train", "validation", "test")) {
+    stop("El nombre del conjunto debe ser 'train', 'validation' o 'test'.")
+  }
+  
+  # Seleccionar dinámicamente el conjunto basado en el nombre proporcionado
+  selected_set <- splits[[set_name]]
+  
+  # Ajustar el modelo glm con el conjunto de entrenamiento
+  formula_glm <- as.formula(paste(target_name, "~ Fenotipo + Grado + REst + RPro"))
+  model <- glm(formula_glm, data = splits$train, family = binomial())
+  
+  # Hacer predicciones en el conjunto seleccionado
+  predicciones <- predict(model, newdata = selected_set, type = "response")
+  
+  # Calcular TPR y FPR para varios umbrales
+  target <- selected_set[[target_name]]
+  tpr <- fpr <- numeric()
+  for(threshold in seq(0, 1, by = 0.01)) {
+    predicciones_truncadas <- ifelse(predicciones > threshold, 1, 0)
+    
+    TP <- sum(predicciones_truncadas == 1 & target == 1)
+    TN <- sum(predicciones_truncadas == 0 & target == 0)
+    FP <- sum(predicciones_truncadas == 1 & target == 0)
+    FN <- sum(predicciones_truncadas == 0 & target == 1)
+    
+    tpr[length(tpr) + 1] <- TP / (TP + FN)
+    fpr[length(fpr) + 1] <- FP / (FP + TN)
+  }
+  
+  # Calcular el AUC aproximado
+  auc <- sum((fpr[-length(fpr)] - fpr[-1]) * (tpr[-length(tpr)] + tpr[-1])) / 2
+  
+  # Graficar la curva ROC
+  plot(fpr, tpr, type = "l", col = "red", xlab = "1-Especificidad (FPR)", ylab = "Sensibilidad (TPR)",
+       main = paste("Curva ROC - Conjunto de", set_name, "\nAUC =", round(auc, 3)))
+  abline(0, 1, lty = 2)
+}
+```
+::: {.panel-tabset}
+
+## ROC Train
+```{r}
+plot_roc_curve(df_imputado, "PCR", splits_indices, "train")
+```
+## ROC Validation
+
+```{r}
+plot_roc_curve(df_imputado, "PCR", splits_indices, "validation")
+```
+## ROC Test
+
+```{r}
+plot_roc_curve(df_imputado, "PCR", splits_indices, "test")
+```
+
+:::
+
+Podemos afirmar que un modelo tiene un mejor rendimiento si su AUC se acerca a 1, sin embargo, la curva ROC puede darnos información adicional. Si observamos las gráficas generadas para conjunto de datos, podemos observar que el mejor AUC lo tiene el conjunto de train, esto tiene sentido, ya que estamos evaluando el modelo con el mismo conjunto con el que ha sido entrenado, por lo que esta gráfica no es muy representativa. 
+
+Se puede observar también que parece que hay valores para los que la Sensibilidad y la Especifidad son 1 ambos, cosa que puede parecer muy positiva, porque tendríamos un clasificador perfecto, sin embargo, lo que está pasando es que estamos poniendo un umbral tan alto que el modelo no está clasificando ninguna muestra como `PCR=1`, haciendo que haya un TPR y FPR perfectos, pero engañosos. 
 
 
+En el contexto de modelos orientados a ser ejecutados en conjuntos de datos clínicos, es crucial considerar el costo de los falsos positivos y falsos negativos. No es lo mismo diagnosticar a un paciente para luego descubrir que no estaba enfermo que diagnosticarlo como sano y descubrir que, realmente, estaba enfermo. Por lo tanto, es esencial seleccionar un umbral bajo para obtener una decente tasa de verdaderos positivos, sacrificando tener una razonable tasa de falsos positivos.
 
-
-
-
-
+Basándonos en estas consideraciones, podemos concluir que utilizaremos un umbral de 0.35 para la evaluación de los siguientes modelos. Este umbral busca equilibrar la sensibilidad y especificidad en función de las necesidades específicas de este proyecto y el contexto clínico, maximizando la utilidad de los modelos en aplicaciones clínicas reales.
 
 
 

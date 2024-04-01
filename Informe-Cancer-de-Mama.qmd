@@ -448,7 +448,7 @@ df_imputado <- data
 for (columna in c(numericas, categoricas)) {
   df_imputado <- imputar_valores(df_imputado, columna)  
 }
-
+df_imputado$PCR <- as.factor(df_imputado$PCR) # Convertimos el target a factor
 na_data <- calc_na_val(df_imputado)
 plot_na_vals(na_data)
 ```
@@ -527,23 +527,30 @@ En la salida del bloque de código superior podemos observar la matriz de confus
 
 ```{r}
 calcular_metricas <- function(target, predicciones_truncadas) {
-  TP <- sum(predicciones_truncadas == 1 & target == 1)
-  TN <- sum(predicciones_truncadas == 0 & target == 0)
-  FP <- sum(predicciones_truncadas == 1 & target == 0)
-  FN <- sum(predicciones_truncadas == 0 & target == 1)
+ TP <- sum(predicciones_truncadas == 1 & target == 1)
+ TN <- sum(predicciones_truncadas == 0 & target == 0)
+ FP <- sum(predicciones_truncadas == 1 & target == 0)
+ FN <- sum(predicciones_truncadas == 0 & target == 1)
   
-  Accuracy <- (TP + TN) / (TP + TN + FN + FP)
-  Precision <- TP / (TP + FP)
-  Recall <- TP / (TP + FN)
-  F1score <- (2 * Precision * Recall) / (Precision + Recall)
+ Accuracy <- (TP + TN) / (TP + TN + FN + FP)
+ Precision <- TP / (TP + FP)
+ Recall <- TP / (TP + FN)
+ F1score <- (2 * Precision * Recall) / (Precision + Recall)
   
-  df_medidas <- data.frame(
+ # Reemplazar NA o NaN por 0
+ Accuracy <- ifelse(is.na(Accuracy) | is.nan(Accuracy), 0, Accuracy)
+ Precision <- ifelse(is.na(Precision) | is.nan(Precision), 0, Precision)
+ Recall <- ifelse(is.na(Recall) | is.nan(Recall), 0, Recall)
+ F1score <- ifelse(is.na(F1score) | is.nan(F1score), 0, F1score)
+  
+ df_medidas <- data.frame(
     Metric = c("Accuracy", "Precision", "Recall", "F1 Score"),
     Value = c(Accuracy, Precision, Recall, F1score)
-  )
+ )
   
-  return(df_medidas)
+ return(df_medidas)
 }
+
 
 calcular_metricas(target, predicciones_truncadas_inicial)
 ```
@@ -655,11 +662,22 @@ holdout_split <- function(df, validation_size, test_size) {
 }
 
 holdout_sets <- function(df, indices) {
-  train_set <- df[indices$train, ]
-  validation_set <- df[indices$validation, ]
-  test_set <- df[indices$test, ]
-  return(list(train = train_set, validation = validation_set, test = test_set))
+  # Extraer el conjunto de entrenamiento
+   train_set <- df[indices$train, ]
+    
+   # Verificar si hay un conjunto de validación y extraerlo si es así
+   validation_set <- NULL
+   if ("validation" %in% names(indices)) {
+      validation_set <- df[indices$validation, ]
+   }
+    
+   # Extraer el conjunto de prueba
+   test_set <- df[indices$test, ]
+    
+   # Devolver los conjuntos de datos
+   return(list(train = train_set, validation = validation_set, test = test_set))
 }
+
 
 
 splits_indices = holdout_split(df = df_imputado,
@@ -811,7 +829,7 @@ Esta faceta engañosa de la medida de accuracy y la facilidad en la que la medid
 La curva ROC representa la Sensibilidad (tasa de verdaderos positivos) frente a 1-Especificidad (tasa de falsos positivos) del modelo para diferentes umbrales (thresholds). Esta curva tiene asociada una medida, el Área Bajo la Curva (AUC), que representa el área encerrada bajo la curva ROC. Matemáticamente, se puede demostrar que este área tendrá un valor entre 0 y 1, siendo 1 un indicativo de un clasificador perfecto, 0.5 el rendimiento de un clasificador aleatorio, y un valor menor a 0.5 podría indicar que las predicciones están desacertadas respecto a las etiquetas verdaderas, pero al invertir las decisiones del clasificador, se obtendría un modelo con un rendimiento mejor que el aleatorio.
 
 ```{r, warning=FALSE}
-plot_roc_curve <- function(df, target_name, indices_list, set_name) {
+roc_metrics <- function(df, target_name, indices_list, set_name) {
   # Separar los conjuntos de datos usando los índices
   splits <- holdout_sets(df, indices_list)
   
@@ -847,10 +865,13 @@ plot_roc_curve <- function(df, target_name, indices_list, set_name) {
   
   # Calcular el AUC aproximado
   auc <- sum((fpr[-length(fpr)] - fpr[-1]) * (tpr[-length(tpr)] + tpr[-1])) / 2
-  
+  return(data.frame(FPR = fpr, TPR = tpr, Threshold = seq(0, 1, by = 0.01), AUC = auc))
+}
+
+plot_roc <- function(tpr, fpr, set_name, auc) {
   # Graficar la curva ROC
   plot(fpr, tpr, type = "l", col = "red", xlab = "1-Especificidad (FPR)", ylab = "Sensibilidad (TPR)",
-       main = paste("Curva ROC - Conjunto de", set_name, "\nAUC =", round(auc, 3)))
+       main = paste("Curva ROC - Conjunto de", set_name, "\nAUC =", round(auc[1], 3)))
   abline(0, 1, lty = 2)
 }
 ```
@@ -858,17 +879,20 @@ plot_roc_curve <- function(df, target_name, indices_list, set_name) {
 
 ## ROC Train
 ```{r}
-plot_roc_curve(df_imputado, "PCR", splits_indices, "train")
+roc_metrics_train <- roc_metrics(df_imputado, "PCR", splits_indices, "train")
+plot_roc(roc_metrics_train$TPR, roc_metrics_train$FPR, "train", roc_metrics_train$AUC)
 ```
 ## ROC Validation
 
 ```{r}
-plot_roc_curve(df_imputado, "PCR", splits_indices, "validation")
+roc_metrics_train <- roc_metrics(df_imputado, "PCR", splits_indices, "validation")
+plot_roc(roc_metrics_train$TPR, roc_metrics_train$FPR, "validation", roc_metrics_train$AUC)
 ```
 ## ROC Test
 
 ```{r}
-plot_roc_curve(df_imputado, "PCR", splits_indices, "test")
+roc_metrics_train <- roc_metrics(df_imputado, "PCR", splits_indices, "test")
+plot_roc(roc_metrics_train$TPR, roc_metrics_train$FPR, "test", roc_metrics_train$AUC)
 ```
 
 :::
@@ -883,7 +907,216 @@ En el contexto de modelos orientados a ser ejecutados en conjuntos de datos clí
 Basándonos en estas consideraciones, podemos concluir que utilizaremos un umbral de 0.35 para la evaluación de los siguientes modelos. Este umbral busca equilibrar la sensibilidad y especificidad en función de las necesidades específicas de este proyecto y el contexto clínico, maximizando la utilidad de los modelos en aplicaciones clínicas reales.
 
 
+### Repeated Hold-Out
 
+Mientras que el Hold-Out tradicional divide el conjunto de datos en una sola partición de entrenamiento y prueba, el Repeated Hold-Out repite este proceso múltiples veces con diferentes particiones aleatorias. Este enfoque reduce la varianza asociada con la selección aleatoria de los conjuntos de datos, proporcionando así una visión más fiable de la capacidad de generalización del modelo.
+
+El método consiste en seleccionar al azar subconjuntos de entrenamiento y prueba en cada repetición, entrenar el modelo con el conjunto de entrenamiento y evaluarlo con el conjunto de prueba. Este procedimiento ayuda a reducir el riesgo de que **una única división aleatoria pueda dar lugar a un conjunto de entrenamiento o prueba que no sea representativo de la poblidad total**, lo cual podría sesgar las métricas de rendimiento.
+
+Para implementar el Repeated Hold-Out en práctica, se puede emplear la función `createDataPartition` de la librería caret en R, la cual está diseñada para crear particiones estratificadas de datos. Esto asegura que cada partición refleje la distribución original de las clases del conjunto de datos completo. Se ha elegido entonces un 
+
+
+```{r, warning=FALSE}
+repHOut <- function(df, target_name, n = 30, val_size = 1/3, test_size = 1/3, threshold) {
+  set.seed(42)
+  roc_data_list_val <- list()
+  roc_data_list_test <- list()
+  metrics_list_val <- list()
+  metrics_list_test <- list()
+  
+  # Variable para mantener todos los datos de TPR y FPR para graficar
+  all_roc_data_val <- data.frame()
+  all_roc_data_test <- data.frame()
+
+  for (i in 1:n) {
+    # División estratificada del conjunto de datos
+    train_indices <- createDataPartition(df[[target_name]], p = 1 - (val_size + test_size), list = TRUE)
+    train_set <- df[train_indices[[1]], ]
+    rest_set <- df[-train_indices[[1]], ]
+    validation_indices <- createDataPartition(rest_set[[target_name]], p = val_size / (val_size + test_size), list = TRUE)
+    validation_set <- rest_set[validation_indices[[1]], ]
+    test_set <- rest_set[-validation_indices[[1]], ]
+    # Calcular la curva ROC y métricas para el conjunto de test
+    roc_data_val <- roc_metrics(df, target_name, list(train = train_indices[[1]], 
+                                                  validation = validation_indices[[1]],
+                                                  test=-validation_indices[[1]]), "validation")
+    roc_data_test <- roc_metrics(df, target_name, list(train = train_indices[[1]], 
+                                                  validation = validation_indices[[1]],
+                                                  test=-validation_indices[[1]]), "test")
+    # Crear modelo y entrenar con conjunto de entrenamiento
+    formula_glm <- as.formula(paste(target_name, "~ Fenotipo + Grado + REst + RPro"))
+    model <- glm(formula_glm, data = train_set, family = binomial())
+    
+    # Realizar predicciones en validación y test
+    predicciones_val <- predict(model, newdata = validation_set, type = "response")
+    predicciones_trunc_val <- ifelse(predicciones_val < threshold, 0, 1)
+    metrics_data_val <- calcular_metricas(validation_set[[target_name]], predicciones_trunc_val)
+    
+    predicciones_test <- predict(model, newdata = test_set, type = "response")
+    predicciones_trunc_test <- ifelse(predicciones_test < threshold, 0, 1)
+    metrics_data_test <- calcular_metricas(test_set[[target_name]], predicciones_trunc_test)
+    
+    roc_data_val$Iteration <- i
+    roc_data_test$Iteration <- i
+    all_roc_data_val <- rbind(all_roc_data_val, roc_data_val)
+    all_roc_data_test <- rbind(all_roc_data_test, roc_data_test)
+    metrics_list_val[[i]] <- metrics_data_val
+    metrics_list_test[[i]] <- metrics_data_test
+  }
+  
+  return(list(MetricsVal = metrics_list_val, MetricsTest = metrics_list_test, 
+              ROC_val = all_roc_data_val, ROC_test=all_roc_data_test))
+}
+
+
+results <- repHOut(df_imputado, "PCR", n = 30, val_size=0.2, test_size =0.2, threshold=.3)
+```
+
+
+
+```{r}
+plot_metrics <- function(metrics_list) {
+ # Convertimos la lista de métricas en un data frame
+ metrics_df <- do.call(rbind, metrics_list)
+  
+ # Añadimos una columna para el número de iteración
+ metrics_df$Iteration <- rep(1:length(metrics_list), each = 4)
+  
+ # Añadimos una columna para el tipo de métrica
+ metrics_df$Metric <- rep(c("Accuracy", "Precision", "Recall", "F1 Score"), times = length(metrics_list))
+  
+ # Graficamos las métricas
+ ggplot(metrics_df, aes(x = Iteration, y = Value, color = Metric)) +
+    geom_point() +
+    geom_line(aes(group = Metric)) +
+    labs(title = "Comparación de Métricas por Iteración",
+         x = "Iteración",
+         y = "Valor",
+         color = "Métrica") +
+    theme_minimal()
+}
+```
+
+::: {.panel-tabset}
+
+## Métricas de Rendimiento: Validación
+
+```{r, fig.width=7, fig.height=5}
+plot_metrics(results$MetricsVal)
+```
+
+
+## Métricas de Rendimiento: Test
+
+```{r, fig.width=7, fig.height=5}
+plot_metrics(results$MetricsTest)
+```
+::: 
+
+
+```{r}
+plot_roc_curves <- function(all_roc_data) {
+ # Graficamos las curvas ROC
+ ggplot(all_roc_data, aes(x = FPR, y = TPR, color = factor(Iteration))) +
+    geom_line() +
+    geom_point() +
+    labs(title = "Curvas ROC por Iteración",
+         x = "False Positive Rate (FPR)",
+         y = "True Positive Rate (TPR)",
+         color = "Iteration") +
+    theme_minimal()
+}
+```
+
+::: {.panel-tabset}
+
+## ROC: Validación
+
+```{r, fig.width=7, fig.height=5}
+plot_roc_curves(results$ROC_val)
+```
+
+## ROC: Test
+
+```{r, fig.width=7, fig.height=5}
+plot_roc_curves(results$ROC_test)
+```
+
+:::
+
+```{r}
+plot_aucs <- function(roc_results) {
+  auc_data <- roc_results
+  auc_data_unique <- auc_data %>%
+   distinct(Iteration, AUC, .keep_all = TRUE)
+  ggplot(auc_data_unique, aes(x = Iteration, y = AUC)) +
+   geom_line() +
+   geom_point() +
+   labs(title = "AUC vs Iteración",
+         x = "Iteración",
+         y = "AUC") +
+   theme_minimal()
+}
+```
+
+::: {.panel-tabset}
+
+## AUC: Validación
+
+```{r, fig.width=7, fig.height=5}
+plot_aucs(results$ROC_val)
+```
+## AUC: Test
+
+```{r, fig.width=7, fig.height=5}
+plot_aucs(results$ROC_test)
+```
+
+:::
+
+### K-Fold Cross Validation
+
+```{r}
+crossVal <- function(df, target_name, k = 5, threshold) {
+ set.seed(42)
+ roc_data_list_val <- list()
+ roc_data_list_test <- list()
+ metrics_list_val <- list()
+ metrics_list_test <- list()
+  
+ # Variable para mantener todos los datos de TPR y FPR para graficar
+ all_roc_data_val <- data.frame()
+ all_roc_data_test <- data.frame()
+
+ # Crear las divisiones (cajas) para la validación cruzada
+ folds <- createFolds(df[[target_name]], k = k, list = TRUE, returnTrain = FALSE)
+  
+ for (i in 1:k) {
+    # Extraer el conjunto de prueba y el conjunto de entrenamiento
+    test_set <- df[folds[[i]], ]
+    train_set <- df[-folds[[i]], ]
+    
+    # Crear modelo y entrenar con conjunto de entrenamiento
+    formula_glm <- as.formula(paste(target_name, "~ Fenotipo + Grado + REst + RPro"))
+    model <- glm(formula_glm, data = train_set, family = binomial())
+    
+    # Realizar predicciones en el conjunto de prueba
+    predicciones_test <- predict(model, newdata = test_set, type = "response")
+    predicciones_trunc_test <- ifelse(predicciones_test < threshold, 0, 1)
+    
+    # Calcular la curva ROC y métricas para el conjunto de prueba
+    roc_data_test <- roc_metrics(df, target_name, list(train = train_set, test = test_set), "test")
+    metrics_data_test <- calcular_metricas(test_set[[target_name]], predicciones_trunc_test)
+    
+    roc_data_test$Iteration <- i
+    all_roc_data_test <- rbind(all_roc_data_test, roc_data_test)
+    metrics_list_test[[i]] <- metrics_data_test
+ }
+  
+ return(list(MetricsTest = metrics_list_test, ROC_test = all_roc_data_test))
+}
+
+```
 
 
 

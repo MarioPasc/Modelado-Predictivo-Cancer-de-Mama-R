@@ -449,6 +449,7 @@ for (columna in c(numericas, categoricas)) {
   df_imputado <- imputar_valores(df_imputado, columna)  
 }
 df_imputado$PCR <- as.factor(df_imputado$PCR) # Convertimos el target a factor
+df_imputado <- df_imputado[ , -which(names(df_imputado) == "Estudio")]
 na_data <- calc_na_val(df_imputado)
 plot_na_vals(na_data)
 ```
@@ -551,19 +552,46 @@ calcular_metricas <- function(target, predicciones_truncadas) {
  return(df_medidas)
 }
 
-
-calcular_metricas(target, predicciones_truncadas_inicial)
+knitr::kable(calcular_metricas(target, predicciones_truncadas_inicial))
 ```
 
 Apoyándonos en la matriz de confusión y en las métricas generadas en el bloque de código superior podemos concluir:
 
 1. **El conjunto de datos está desbalanceado**. La medida *recall* nos permite saber cuántos aciertos ha tenido el modelo sobre la cantidad total de clases positivas que recibió de entrada. Al tener un recall bajo, significa que el modelo reconoce mejor la salida *PCR=0*, esto es un indicador de que el modelo está sesgado a etiquetar las muestras como la clase *PCR=0*, seguramente porque hay muchas más muestras de esta clase que de *PCR=1* (Metástasis). 
 
+```{r}
+plot_distribution_dataset <- function(df, target) {
+  
+  # Calcular la distribución de la variable target
+  pcr_distribution <- table(df[[target]])
+  
+  # Crear un data.frame para visualización
+  df_vis <- data.frame(
+    Group = names(pcr_distribution),
+    Count = as.integer(pcr_distribution)
+  )
+  
+  # Generar el gráfico de barras
+  ggplot(df_vis, aes(x = Group, y = Count, fill = Group)) +
+    geom_bar(stat = "identity") +
+    labs(x = target, y = "Cantidad de muestras", fill = paste(target, "Value", sep=" ")) +
+    theme_minimal() +
+    scale_fill_brewer(palette = "Pastel1") +
+    geom_text(aes(label = Count), vjust = -0.3, size = 3.5)
+}
+
+plot_distribution_dataset(df_imputado, "PCR")
+
+```
+
 2. **El modelo no predice bien las muestas positivas**. La medida *precision* nos permite saber cuántas muestras positivas realmente lo eran sobre la cantidad total de muestras clasificadas como positivas por el modelo. Esto nos permite saber si el modelo está capacitado para poder clasificar bien una muestra positiva cuando la detecta. 
 
 La solución al problema del punto 1 sería introducir algún método de **validación cruzada** que mantenga el balance de clases positivas y negativas durante el entrenamiento (*Stratified K-Folding*) o una **aumentación de datos** a favor de la clase positiva (oversampling), incluso una combinación de ambos podría ser beneficiosa. La solución al problema del punto 2 sería emplear técnicas de selección de características para el entrenamiento del modelo con la finalidad de encontrar la combinación de variables que le permita al algoritmo identificar, y clasificar correctamente las muestras positivas. 
 
 La medida *Accuracy* se presenta algo engañosa en este caso, ya que hay una gran cantidad de verdaderos negativos (TN) en la matriz de confusión. Por otra parte, el *F1-Score* es un representante de las medidas precision y recall. 
+
+
+
 
 
 ## Selección de características
@@ -602,6 +630,7 @@ Observando entonces la figura superior, podemos concluir que las variables `Feno
 
 ```{r}
 lr_model_ajustado <- glm(PCR ~ Fenotipo + Grado + REst + RPro, data=df_imputado, family="binomial")
+
 predicciones <- predict(lr_model_ajustado, type = "response")
 
 pred <- data.frame(
@@ -627,187 +656,141 @@ predicciones_truncadas_ajustado <- ifelse(predicciones < threshold, 0, 1)
 
 plot_confMat(predicciones_truncadas_inicial, target)
 plot_confMat(predicciones_truncadas_ajustado, target)
-
 ```
-
+Como podemos observar, el modelo para el cual se han elegido las variables más correladas no consigue aprender bien el patrón asociado a `PCR=1`, significando que no tiene capacidad de clasificación. 
 
 
 ## Validación Interna
 
-La validación interna recoge las diferentes técnicas que existen para la división del conjunto de datos en subconjuntos con la finalidad de entrenar, validar, y probar el modelo en datos para asegurar la precisión y eficacia de este. Esta división suele realizarse en 3 subconjuntos, el de entrenamiento (*train*), validación (*val*) y prueba (*test*). El subconjunto de entrenamiento sirve para ajustar los hiperparámetros internos del modelo a los datos, el de validación sirve para comprobar si el modelo está ajustado lo suficiente como para producir resultados fiables, y el de test se utiliza para simular qué resultados muestra el modelo al introducir datos nunca visto, imitando un caso en el que el modelo sea lanzado para poder utilizarse en algún negocio. 
+La validación interna recoge las diferentes técnicas que existen para la división del conjunto de datos en subconjuntos con la finalidad de entrenar, validar, y probar el modelo en datos para asegurar la precisión y eficacia de este. Esta división suele realizarse en 2 subconjuntos, el de entrenamiento (*train*), y prueba (*test*). El subconjunto de entrenamiento sirve para ajustar los hiperparámetros internos del modelo a los datos, mientras que el de test se utiliza para simular qué resultados muestra el modelo al introducir datos nunca vistos, imitando un caso en el que el modelo sea lanzado para poder utilizarse. 
 
 Hay diferentes métodos de validación interna, y, como se menciona en [@NEURIPS2019_ee39e503], todos mejoran en una medida u otra el rendimiento del modelo, ya sea reduciendo el *overfitting* o *underfitting*, sin embargo, muchas veces la aplicación se uno u otro se ve limitada por la capacidad del cómputo del equipo 
 
 ### Hold-Out
 
 ```{r}
-holdout_split <- function(df, validation_size, test_size) {
+holdout_split <- function(df, test_size, val_size = 0) {
   # Calcular tamaños de los conjuntos
   total_rows <- nrow(df)
-  validation_rows <- round(total_rows * validation_size)
   test_rows <- round(total_rows * test_size)
+  val_rows <- round(total_rows * val_size)
 
   # Crear índices aleatorios
-  set.seed(42)
+  set.seed(42)  # Establecer una semilla para reproducibilidad
   indices <- sample(1:total_rows, total_rows)
 
   # Asignar índices a cada conjunto
-  validation_indices <- indices[1:validation_rows]
-  test_indices <- indices[(validation_rows + 1):(validation_rows + test_rows)]
-  train_indices <- indices[(validation_rows + test_rows + 1):total_rows]
-
-  return(list(train = train_indices, 
-              validation = validation_indices, 
-              test = test_indices))
+  if (val_size > 0) {
+    val_indices <- indices[1:val_rows]
+    test_indices <- indices[(val_rows + 1):(val_rows + test_rows)]
+    train_indices <- indices[(val_rows + test_rows + 1):total_rows]
+    return(list(train = train_indices, validation = val_indices, test = test_indices))
+  } else {
+    test_indices <- indices[1:test_rows]
+    train_indices <- indices[(test_rows + 1):total_rows]
+    return(list(train = train_indices, test = test_indices))
+  }
 }
 
 holdout_sets <- function(df, indices) {
-  # Extraer el conjunto de entrenamiento
-   train_set <- df[indices$train, ]
-    
-   # Verificar si hay un conjunto de validación y extraerlo si es así
-   validation_set <- NULL
-   if ("validation" %in% names(indices)) {
-      validation_set <- df[indices$validation, ]
-   }
-    
-   # Extraer el conjunto de prueba
-   test_set <- df[indices$test, ]
-    
-   # Devolver los conjuntos de datos
-   return(list(train = train_set, validation = validation_set, test = test_set))
+  # Extraer los conjuntos de entrenamiento y prueba basándose en los índices proporcionados
+  train_set <- df[indices$train, ]
+  test_set <- df[indices$test, ]
+  
+  # Si existe un conjunto de validación, extraerlo también
+  if ("validation" %in% names(indices)) {
+    val_set <- df[indices$validation, ]
+    return(list(train = train_set, validation = val_set, test = test_set))
+  } else {
+    return(list(train = train_set, test = test_set))
+  }
 }
-
-
-
-splits_indices = holdout_split(df = df_imputado,
-                       validation_size = .2,
-                       test_size = .15)
-
-splits = holdout_sets(df = df_imputado, 
-                      indices=splits_indices)
-train_set = splits[1]
-val_set = splits[2]
-test_set = splits[3]
+splits_indices <- holdout_split(df_imputado, test_size = 0.25, val_size = 0)
+splits <- holdout_sets(df_imputado, splits_indices)
 ```
 
 #### Evaluación HoldOut
 
-Habiendo creado entonces los conjuntos de entrenamiento, validación y prueba, se va a proceder a programar una función que reciba los índices generados aleatoriamente para mostrar la distribución de la variable objetivo en los diferentes subconjuntos. 
+Habiendo creado entonces los conjuntos de entrenamiento y prueba, se va a proceder a programar una función que reciba los índices generados aleatoriamente para mostrar la distribución de la variable objetivo en los diferentes subconjuntos. 
 
 ```{r}
 plot_distribution <- function(df, target, indices) {
   # Obtener los conjuntos de datos basados en los índices
   sets <- holdout_sets(df, indices)
-  pcr_distribution <- lapply(sets, function(set) table(set[[target]]))
+  
+  # Calcular la distribución de la variable objetivo para cada conjunto
+  pcr_distributions <- lapply(sets, function(set) table(factor(set[[target]], levels = c("0", "1"))))
+  
+  # Inicializar los vectores para el data.frame de visualización
+  groups <- character()
+  pcrtypes <- character()
+  counts <- integer()
+  
+  # Llenar los vectores con los datos de cada conjunto
+  for (set_name in names(pcr_distributions)) {
+    dist <- pcr_distributions[[set_name]]
+    groups <- c(groups, rep(set_name, length(dist)))
+    pcrtypes <- c(pcrtypes, names(dist))
+    counts <- c(counts, as.integer(dist))
+  }
   
   # Crear un data.frame para visualización
   df_vis <- data.frame(
-    Group = rep(c("Train", "Validation", "Test"), each = 2),
-    PCR = rep(c("0", "1"), 3),
-    Count = unlist(lapply(pcr_distribution, function(x) c(x['0'], x['1'])))
+    Group = groups,
+    PCR = pcrtypes,
+    Count = counts
   )
   
   # Generar el gráfico de barras
-  ggplot(df_vis, aes(fill = PCR, y = Count, x = Group)) +
+  gg <- ggplot(df_vis, aes(fill = PCR, y = Count, x = Group)) +
     geom_bar(position = "dodge", stat = "identity") +
     labs(x = "Conjunto", y = "Cantidad de muestras", fill = paste(target, "Value", sep=" ")) +
     theme_minimal() +
     scale_fill_manual(values = c("0" = "skyblue", "1" = "salmon")) +
     geom_text(aes(label = Count), position = position_dodge(width = 0.9), vjust = -0.25)
+  
+  # Si el conjunto de validación no existe, ajustar el gráfico para que no intente mostrarlo
+  if (!"validation" %in% names(sets)) {
+    gg <- gg + scale_x_discrete(limits = c("train", "test"))
+  }
+  
+  print(gg)
 }
 
-plot_distribution(df = df_imputado,
-                  target= "PCR",
-                  indices = splits_indices)
+plot_distribution(df = df_imputado, target= "PCR", indices = splits_indices)
 ```
 
-Como podemos observar, el desbalance de las clases de la variable `PCR` es evidente. En ninguno de los subconjuntos generados se ha conseguido llegar como mínimo al 50% de muestras de `PCR=1` sobre la cantidad de `PCR=0`. Este desbalance se hará entonces evidente en las medidas de precision y recall. La medida precision tendrá un valor bajo por la pobre cantidad de muestras `PCR=1`, haciendo que las que el modelo identifique, las clasifique mal. Recall, por otra parte, tendrá un valor bajo, ya que el modelo no conseguirá distinguir las clases `PCR=1` de `PCR=0` por el sesgo introducido debido al desbalance de datos. 
+Como podemos observar, el desbalance de las clases de la variable `PCR` es evidente. En ninguno de los subconjuntos generados se ha conseguido llegar como mínimo al 50% de muestras de `PCR=1` sobre la cantidad de `PCR=0`. Este desbalance se hará entonces evidente en las medidas de precision y recall. La medida precision tendrá un valor bajo por la pobre cantidad de muestras `PCR=1`, haciendo que las que el modelo identifique, las clasifique mal, o, en su defecto, engañoso, ya que habrá muy pocas muestras. Recall, por otra parte, tendrá un valor bajo, ya que el modelo no conseguirá distinguir las clases `PCR=1` de `PCR=0` por el sesgo introducido debido al desbalance de datos. 
 
 #### Rendimiento del modelo mediante el método HoldOut
 
 Podemos evidenciar este comportamiento observando las matrices de confusión resultantes de evaluar el modelo para cada conjunto de datos, siendo entrenado solo con el conjunto de entrenamiento. 
 
 ```{r, warning=FALSE}
-evaluate_model <- function(df, target_name, indices_list, threshold = 0.5) {
-  # Separar los conjuntos de datos usando los índices
-  splits <- holdout_sets(df, indices_list)
+evaluate_model <- function(df, target_name, splits_indices, threshold = 0.5) {
+  # Extraer los conjuntos de entrenamiento y prueba
+  train_set <- df[splits_indices$train, ]
+  test_set <- df[splits_indices$test, ]
   
-  # Ajustar el modelo glm con el conjunto de entrenamiento
-  formula_glm <- as.formula(paste(target_name, "~ Fenotipo + Grado + REst + RPro"))
-  model <- glm(formula_glm, data = splits$train, family = binomial())
+  formula_glm <- as.formula(paste(target_name, "~ .")) 
+  model <- glm(formula_glm, data = train_set, family = binomial())
 
-  # Inicializar una lista para almacenar los resultados
+  # Realizar predicciones en el conjunto de prueba
+  predicciones <- predict(model, newdata = test_set, type = "response")
+  predicciones_truncadas <- ifelse(predicciones < threshold, 0, 1)
+
+  # Calcular y almacenar la matriz de confusión y métricas para el conjunto de prueba
   results <- list()
-
-  # Para cada conjunto (train, validation, test), calcular la matriz de confusión y métricas
-  for (set_name in names(splits)) {
-    # Extraer el conjunto de datos actual
-    set <- splits[[set_name]]
-    
-    predicciones <- predict(model, newdata = set, type = "response")
-    predicciones_truncadas <- ifelse(predicciones < threshold, 0, 1)
-    results[[paste(set_name, "conf_mat", sep = "_")]] <- plot_confMat(predicciones_truncadas, set[[target_name]])
-    
-    # Calcular y almacenar métricas
-    metrics <- calcular_metricas(set[[target_name]], predicciones_truncadas)
-    results[[paste(set_name, "metrics", sep = "_")]] <- metrics
-  }
-  
-  results[["test_target_distribution"]] <- table(splits$test[[target_name]])
-  
+  results[["test_conf_mat"]] <- plot_confMat(predicciones_truncadas, test_set[[target_name]])
+  results[["test_metrics"]] <- calcular_metricas(test_set[[target_name]], predicciones_truncadas)
   return(results)
 }
 
 results <- evaluate_model(df_imputado, "PCR", splits_indices, threshold = 0.5)
 ```
 
-De esta forma hemos podido obtener las matrices de confusión del modelo, así como las métricas de rendimiento para cada subconjunto de datos. Para poder evaluar estas dos medidas y su coherencia con lo anteriormente estimado, podemos representar gráficamente ambos resultados:
-
-```{r}
-compare_metrics_graphically <- function(metrics_list) {
-  metrics_df <- do.call(rbind, lapply(names(metrics_list), function(set_name) {
-    set_metrics <- metrics_list[[set_name]]
-    set_metrics$Set <- gsub("_metrics", "", set_name)  
-    return(set_metrics)
-  }))
-  
-  metrics_df$Set <- factor(metrics_df$Set, levels = c("train", "validation", "test"))
-  
-  # Usar ggplot para crear el gráfico de barras
-  ggplot(metrics_df, aes(x = Metric, y = Value, fill = Set)) +
-    geom_bar(stat = "identity", position = position_dodge(width = 0.7)) +
-    labs(title = "Comparación de Métricas de Modelo por Conjunto",
-         x = "Métrica", y = "Valor") +
-    theme_minimal() +
-    scale_fill_brewer(palette = "Dark2") +
-    theme(axis.text.x = element_text(angle = 45, hjust = 1))
-}
-
-metrics_list <- list(
-  train_metrics = results$train_metrics,
-  validation_metrics = results$validation_metrics,
-  test_metrics = results$test_metrics
-)
-
-results$test_metrics
-
-compare_metrics_graphically(metrics_list)
-```
 
 ::: {.panel-tabset}
-
-## ConfMat Train
-```{r}
-print(results$train_conf_mat)
-```
-El valor de precisión obtenido en entrenamiento no es significativo sin tener en cuenta el bajo valor de recall. Un ejemplo similar pero más extremo ocurre con el conjunto de test. Para una explicación más detallada, consultar `ConfMat test`. 
-
-## ConfMat Validation
-
-```{r}
-print(results$validation_conf_mat)
-```
 ## ConfMat Test
 
 ```{r}
@@ -816,6 +799,12 @@ print(results$test_conf_mat)
 Apoyándonos en la gráfica de las medidas de rendimiento para cada conjunto de datos, podemos concluir que el valor de precisión perfecto para el conjunto de test es algo engañoso, ya que hay muy pocas muestras positivas para PCR, pero de estas pocas muestras (12), las que han sido identificadas como `PCR=1` por el modelo (2) han sido correctamente clasificadas (Verdadero Positivo). 
 
 Esto queda evidenciado también en la medida de recall, que es baja ya que de 12 muestras PCR positivas, el modelo ha clasificado como `PCR=0` 10 de ellas (Falso Negativo).  
+
+## Métricas de Rendimiento
+
+```{r}
+knitr::kable(results$test_metrics)
+```
 
 :::
 
@@ -882,12 +871,6 @@ plot_roc <- function(tpr, fpr, set_name, auc) {
 roc_metrics_train <- roc_metrics(df_imputado, "PCR", splits_indices, "train")
 plot_roc(roc_metrics_train$TPR, roc_metrics_train$FPR, "train", roc_metrics_train$AUC)
 ```
-## ROC Validation
-
-```{r}
-roc_metrics_train <- roc_metrics(df_imputado, "PCR", splits_indices, "validation")
-plot_roc(roc_metrics_train$TPR, roc_metrics_train$FPR, "validation", roc_metrics_train$AUC)
-```
 ## ROC Test
 
 ```{r}
@@ -917,59 +900,43 @@ Para implementar el Repeated Hold-Out en práctica, se puede emplear la función
 
 
 ```{r, warning=FALSE}
-repHOut <- function(df, target_name, n = 30, val_size = 1/3, test_size = 1/3, threshold) {
+repHOut <- function(df, target_name, variables, n = 30, test_size = .2, threshold) {
   set.seed(42)
-  roc_data_list_val <- list()
   roc_data_list_test <- list()
-  metrics_list_val <- list()
   metrics_list_test <- list()
   
+  
   # Variable para mantener todos los datos de TPR y FPR para graficar
-  all_roc_data_val <- data.frame()
   all_roc_data_test <- data.frame()
 
   for (i in 1:n) {
     # División estratificada del conjunto de datos
-    train_indices <- createDataPartition(df[[target_name]], p = 1 - (val_size + test_size), list = TRUE)
+    train_indices <- createDataPartition(df[[target_name]], p = 1 - test_size, list = TRUE)
     train_set <- df[train_indices[[1]], ]
-    rest_set <- df[-train_indices[[1]], ]
-    validation_indices <- createDataPartition(rest_set[[target_name]], p = val_size / (val_size + test_size), list = TRUE)
-    validation_set <- rest_set[validation_indices[[1]], ]
-    test_set <- rest_set[-validation_indices[[1]], ]
-    # Calcular la curva ROC y métricas para el conjunto de test
-    roc_data_val <- roc_metrics(df, target_name, list(train = train_indices[[1]], 
-                                                  validation = validation_indices[[1]],
-                                                  test=-validation_indices[[1]]), "validation")
-    roc_data_test <- roc_metrics(df, target_name, list(train = train_indices[[1]], 
-                                                  validation = validation_indices[[1]],
-                                                  test=-validation_indices[[1]]), "test")
+    test_set <- df[-train_indices[[1]], ]
+    
     # Crear modelo y entrenar con conjunto de entrenamiento
-    formula_glm <- as.formula(paste(target_name, "~ Fenotipo + Grado + REst + RPro"))
+    formula_glm <- as.formula(paste(target_name, "~", variables))  
     model <- glm(formula_glm, data = train_set, family = binomial())
     
-    # Realizar predicciones en validación y test
-    predicciones_val <- predict(model, newdata = validation_set, type = "response")
-    predicciones_trunc_val <- ifelse(predicciones_val < threshold, 0, 1)
-    metrics_data_val <- calcular_metricas(validation_set[[target_name]], predicciones_trunc_val)
-    
+    # Realizar predicciones en test
     predicciones_test <- predict(model, newdata = test_set, type = "response")
     predicciones_trunc_test <- ifelse(predicciones_test < threshold, 0, 1)
     metrics_data_test <- calcular_metricas(test_set[[target_name]], predicciones_trunc_test)
     
-    roc_data_val$Iteration <- i
+    # Suponiendo que roc_metrics es una función que calcula la curva ROC y que devuelva un data.frame
+    roc_data_test <- roc_metrics(df, target_name, list(train = train_indices[[1]], 
+                                                       test = -train_indices[[1]]), "test")
     roc_data_test$Iteration <- i
-    all_roc_data_val <- rbind(all_roc_data_val, roc_data_val)
     all_roc_data_test <- rbind(all_roc_data_test, roc_data_test)
-    metrics_list_val[[i]] <- metrics_data_val
     metrics_list_test[[i]] <- metrics_data_test
   }
   
-  return(list(MetricsVal = metrics_list_val, MetricsTest = metrics_list_test, 
-              ROC_val = all_roc_data_val, ROC_test=all_roc_data_test))
+  return(list(MetricsTest = metrics_list_test, ROC_test = all_roc_data_test))
 }
 
+results = repHOut(df=df_imputado, target_name="PCR", variables = c("."), threshold=.35)
 
-results <- repHOut(df_imputado, "PCR", n = 30, val_size=0.2, test_size =0.2, threshold=.3)
 ```
 
 
@@ -999,20 +966,14 @@ plot_metrics <- function(metrics_list) {
 
 ::: {.panel-tabset}
 
-## Métricas de Rendimiento: Validación
-
-```{r, fig.width=7, fig.height=5}
-plot_metrics(results$MetricsVal)
-```
-
-
-## Métricas de Rendimiento: Test
+## Métricas de Rendimiento
 
 ```{r, fig.width=7, fig.height=5}
 plot_metrics(results$MetricsTest)
 ```
-::: 
 
+
+## ROC
 
 ```{r}
 plot_roc_curves <- function(all_roc_data) {
@@ -1028,21 +989,10 @@ plot_roc_curves <- function(all_roc_data) {
 }
 ```
 
-::: {.panel-tabset}
-
-## ROC: Validación
-
-```{r, fig.width=7, fig.height=5}
-plot_roc_curves(results$ROC_val)
-```
-
-## ROC: Test
-
 ```{r, fig.width=7, fig.height=5}
 plot_roc_curves(results$ROC_test)
 ```
-
-:::
+## AUC
 
 ```{r}
 plot_aucs <- function(roc_results) {
@@ -1059,14 +1009,6 @@ plot_aucs <- function(roc_results) {
 }
 ```
 
-::: {.panel-tabset}
-
-## AUC: Validación
-
-```{r, fig.width=7, fig.height=5}
-plot_aucs(results$ROC_val)
-```
-## AUC: Test
 
 ```{r, fig.width=7, fig.height=5}
 plot_aucs(results$ROC_test)
@@ -1074,51 +1016,119 @@ plot_aucs(results$ROC_test)
 
 :::
 
-### K-Fold Cross Validation
+### Algoritmo Genético
 
-```{r}
-crossVal <- function(df, target_name, k = 5, threshold) {
- set.seed(42)
- roc_data_list_val <- list()
- roc_data_list_test <- list()
- metrics_list_val <- list()
- metrics_list_test <- list()
-  
- # Variable para mantener todos los datos de TPR y FPR para graficar
- all_roc_data_val <- data.frame()
- all_roc_data_test <- data.frame()
+```{r, warning=FALSE}
+source("./GAFeatureSelection.R")
 
- # Crear las divisiones (cajas) para la validación cruzada
- folds <- createFolds(df[[target_name]], k = k, list = TRUE, returnTrain = FALSE)
-  
- for (i in 1:k) {
-    # Extraer el conjunto de prueba y el conjunto de entrenamiento
-    test_set <- df[folds[[i]], ]
-    train_set <- df[-folds[[i]], ]
-    
-    # Crear modelo y entrenar con conjunto de entrenamiento
-    formula_glm <- as.formula(paste(target_name, "~ Fenotipo + Grado + REst + RPro"))
-    model <- glm(formula_glm, data = train_set, family = binomial())
-    
-    # Realizar predicciones en el conjunto de prueba
-    predicciones_test <- predict(model, newdata = test_set, type = "response")
-    predicciones_trunc_test <- ifelse(predicciones_test < threshold, 0, 1)
-    
-    # Calcular la curva ROC y métricas para el conjunto de prueba
-    roc_data_test <- roc_metrics(df, target_name, list(train = train_set, test = test_set), "test")
-    metrics_data_test <- calcular_metricas(test_set[[target_name]], predicciones_trunc_test)
-    
-    roc_data_test$Iteration <- i
-    all_roc_data_test <- rbind(all_roc_data_test, roc_data_test)
-    metrics_list_test[[i]] <- metrics_data_test
- }
-  
- return(list(MetricsTest = metrics_list_test, ROC_test = all_roc_data_test))
-}
-
+ga_results <- ga_featureSelection(df=df_imputado,
+                                  target_name="PCR",
+                                  train_indices=splits_indices$train,
+                                  test_indices=splits_indices$test,
+                                  nBits=(ncol(df_imputado)-1))
 ```
 
 
+```{r}
+feature_names <- names(df_imputado)[-which(names(df_imputado) == "PCR")]
+for (i in 1:nrow(ga_results@solution)) {
+    solution <- ga_results@solution[i, ]
+    selected_features <- feature_names[solution == 1]
+    cat("Solución", i, ": ", paste(selected_features, collapse = ", "), "\n")
+}
+  
+```
+
+
+```{r}
+
+results = repHOut(df=df_imputado, target_name="PCR", 
+                variables = "Edad+REst+RPro+Estadio+NodAfec+Grado", threshold=.35)
+plot_metrics(results$MetricsTest)
+plot_aucs(results$ROC_test)
+
+```
+
+### Fuerza Bruta
+
+```{r}
+library(caret)  # Para createDataPartition
+
+# Función para calcular métricas incluyendo F1-score
+calculate_metrics <- function(y_true, y_pred) {
+  y_pred <- ifelse(y_pred < 0.35, 0, 1)
+  TP <- sum(y_pred == 1 & y_true == 1)
+  TN <- sum(y_pred == 0 & y_true == 0)
+  FP <- sum(y_pred == 1 & y_true == 0)
+  FN <- sum(y_pred == 0 & y_true == 1)
+  
+  accuracy = (TP + TN) / (TP + TN + FP + FN)
+  precision = ifelse(TP + FP == 0, 0, TP / (TP + FP))
+  recall = ifelse(TP + FN == 0, 0, TP / (TP + FN))
+  f1_score = ifelse(precision + recall == 0, 0, (2 * precision * recall) / (precision + recall))
+  
+  return(list(accuracy = accuracy, precision = precision, recall = recall, f1_score = f1_score))
+}
+
+# Función de fuerza bruta con repeated hold-out
+brute_force_glm_repeated <- function(df, target_name, n_repeats, test_size = 0.2) {
+  feature_names <- setdiff(names(df), target_name)
+  best_acc_avg <- 0
+  best_combination <- NULL
+  best_metrics <- NULL
+  best_custom_performance <- 0
+  
+  # Generar todas las combinaciones posibles de variables
+  for (i in 1:length(feature_names)) {
+    combinations <- combn(feature_names, i, simplify = FALSE)
+    
+    for (combo in combinations) {
+      if (length(combo) < 2) {next}  # Ignorar combinaciones con menos de dos variables
+      
+      metrics_list <- vector("list", n_repeats)
+      
+      # Repetir el proceso de hold-out
+      for (iter in 1:n_repeats) {
+        set.seed(iter)
+        train_index <- createDataPartition(df[[target_name]], p = 1 - test_size, list = TRUE)[[1]]
+        test_index <- setdiff(1:nrow(df), train_index)
+        
+        train_set <- df[train_index, c(target_name, combo), drop = FALSE]
+        test_set <- df[test_index, c(target_name, combo), drop = FALSE]
+        
+        model <- glm(as.formula(paste(target_name, "~", paste(combo, collapse = "+"))), data = train_set, family = "binomial")
+        predictions <- predict(model, newdata = test_set, type = "response")
+        
+        metrics_list[[iter]] <- calculate_metrics(test_set[[target_name]], predictions)
+      }
+      
+      # Calcula promedios de las métricas
+      metrics_data <- do.call(rbind, lapply(metrics_list, function(x) unlist(x)))
+      avg_metrics <- colMeans(metrics_data, na.rm = TRUE)
+      
+      custom_performance = .5 * avg_metrics['accuracy'] + .5 * avg_metrics['f1_score']
+      
+      if (custom_performance > best_custom_performance) {
+          best_custom_performance <- custom_performance
+          best_acc_avg <- avg_metrics['accuracy']
+          best_metrics <- avg_metrics
+          best_combination <- combo
+      }
+    }
+  }
+  
+  cat("Mejor combinación de variables:", paste(best_combination, collapse = ", "), "\n")
+  cat("Con Accuracy promedio:", best_metrics['accuracy'], "\n")
+  cat("Precision promedio:", best_metrics['precision'], "\n")
+  cat("Recall promedio:", best_metrics['recall'], "\n")
+  cat("F1-Score promedio:", best_metrics['f1_score'], "\n")
+}
+
+# 
+
+brute_force_glm_repeated(df = df_imputado, target_name = "PCR", n_repeats = 30, test_size = 0.2)
+
+```
 
 
 # Referencias

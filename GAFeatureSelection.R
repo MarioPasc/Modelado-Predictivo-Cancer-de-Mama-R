@@ -1,24 +1,21 @@
 library(GA)
-library(pheatmap)
 
-# Actualiza esta función para aceptar el umbral como argumento
 calculate_fitness_value <- function(y_true, y_pred, threshold = 0.35) {
-  y_pred <- ifelse(y_pred < threshold, 0, 1)
+  y_pred <- ifelse(y_pred < 0.35, 0, 1)
   TP <- sum(y_pred == 1 & y_true == 1)
   TN <- sum(y_pred == 0 & y_true == 0)
   FP <- sum(y_pred == 1 & y_true == 0)
   FN <- sum(y_pred == 0 & y_true == 1)
   
-  total = TP + TN + FN + FP
-  if (total == 0){
-    return(0)
-  } else {
-    return((TP + TN) / (total))
-  }
+  accuracy = (TP + TN) / (TP + TN + FP + FN)
+  precision = ifelse(TP + FP == 0, 0, TP / (TP + FP))
+  recall = ifelse(TP + FN == 0, 0, TP / (TP + FN))
+  f1_score = ifelse(precision + recall == 0, 0, (2 * precision * recall) / (precision + recall))
+  
+  return(0.5 * accuracy + 0.5 * f1_score)
 }
 
-# Asegúrate de pasar el umbral a calculate_fitness_value
-fitness_function <- function(binary_vector, df, target_name, train_indices, test_indices, threshold = 0.5) {
+fitness_function <- function(binary_vector, df, target_name, train_indices, test_indices, threshold = 0.35) {
   binary_vector <- binary_vector[1:(ncol(df)-1)]  # Asegura la longitud correcta del vector binario
   variables <- names(df)[-which(names(df) == target_name)][binary_vector == 1]
   
@@ -35,7 +32,7 @@ fitness_function <- function(binary_vector, df, target_name, train_indices, test
 }
 
 
-ga_featureSelection <- function(df, target_name, train_indices, test_indices, nBits, threshold = 0.5) {
+ga_featureSelection <- function(df, target_name, train_indices, test_indices, nBits, threshold = 0.35) {
   accuracy_history <- data.frame(iteration = numeric(), mean_accuracy = numeric(), max_accuracy = numeric())
   # Inicializar feature_selection_frequency con un número específico de columnas y filas
   feature_selection_frequency <- matrix(0, nrow = nBits, ncol = 1)

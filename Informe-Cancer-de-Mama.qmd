@@ -57,7 +57,7 @@ library(DT)
 library(tidyverse)
 library(reshape2)
 library(MASS)
-
+library(pROC)
 data <- read.csv(file = "data_p1.csv", sep = ";", dec=",")
 ```
 
@@ -75,13 +75,39 @@ knitr::opts_chunk$set(
     warning     = FALSE)    # if FALSE knitr will not display any warning messages in the final document
 ```
 
+# Introducción 
+
+## Contexto
+
+El cáncer de mama es el cáncer no cutáneo más común en las mujeres en los Estados Unidos, con una incidencia estimada de 310,720 casos de enfermedad invasiva y 42,250 defunciones durante 2024 [@nci2024deteccion]. Este problema de salud tiene una relevancia crítica debido a su impacto en la vida de las mujeres y en la sociedad en general.
+
+La capacidad de anticipar la metástasis de un paciente de cáncer de mama es esencial, ya que permite una intervención temprana y potencialmente curativa. La acción rápida contra el cáncer, especialmente en sus etapas iniciales, es crucial para salvar vidas. De aquí surge la necesidad de desarrollar modelos predictivos basados en datos, los cuales pueden ofrecer una herramienta valiosa para identificar a los pacientes en riesgo de metástasis, permitiendo un diagnóstico y tratamiento tempranos.
+
+Para los clínicos, la implementación de un modelo predictivo para predecir el estado PCR de los pacientes con cáncer de mama puede mejorar la precisión del diagnóstico, reduciendo el sobrediagnóstico y el sobretratamiento, lo cual es particularmente relevante dado que la detección temprana del cáncer de mama puede conducir a un sobrediagnóstico, donde se detectan cánceres que no representan una amenaza para la vida del paciente [@nci2024deteccion]. Por otra parte, estos modelos pueden ayudar a optimizar el uso de recursos, al permitir una asignación más eficiente de los tratamientos y exámenes, basada en la probabilidad de que un paciente progrese a metástasis. Tercero, pueden mejorar la calidad de vida de los pacientes al permitir un enfoque más personalizado del tratamiento, basado en su riesgo individual de metástasis.
+
+## Datos para la predicción de metástasis
+
+Los modelos de machine learning que se utilizan para la predicción de metástasis en pacientes con cáncer de mama, principalmente, pueden trabajar con dos tipos de datos: imágenes (@fig-senocancer) y datos numéricos de biopsias o de análisis clínicos del paciente. En este trabajo, nos enfocaremos en el uso de datos numéricos de biopsias para desarrollar nuestro modelo predictivo.
+
+![Radiografía de un seno con cáncer](cancer_mama_image.jpg){#fig-senocancer fig-align="center"}
+
+
+## Trabajos previos
+
+Los modelos de machine learning han demostrado ser efectivos en la clasificación de la metástasis del cáncer de mama. Un estudio publicado en el National Center for Biotechnology Information (NCBI) exploró el uso de varios algoritmos de machine learning, incluyendo la regresión logística, y otros, para clasificar la metástasis del cáncer de mama utilizando datos de perfil sanguíneo. Los resultados mostraron que estos modelos lograron una precisión significativa en la clasificación de la metástasis del cáncer de mama, con algunos algoritmos alcanzando una precisión de hasta el 99% [@lakshmi2023].
+
+
+Otro estudio destacó el uso de un modelo de aprendizaje profundo, TabNet, para predecir la involucración del nódulo linfático sentinel (SLN) en pacientes con cáncer de mama basándose en características preoperatorias. La aplicación exitosa de machine learning en la predicción de la metástasis del SLN subraya la capacidad de estos modelos para mejorar la precisión del diagnóstico y el tratamiento del cáncer de mama [@shahriarirad2024].
+
+
 # Pre-procesamiento de los datos
 
 ## Justificación
 
 Esta sección pretende abordar la etapa más crucial de todo el proceso de *Machine Learning* (ML), el curado de los datos, también conocido como pre-procesamiento. Este paso no es simplemente un prefacio al modelo predictivo, sino una fase determinante en la construcción de un modelo de aprendizaje automático robusto y eficaz. 
 
-El preprocesamiento de datos es esencial para transformar el aprendizaje automático en un proceso analítico y estructurado. Más allá de la mera alimentación de un algoritmo con data crudos, esta fase crítica abarca la limpieza, normalización, transformación y extracción de características necesarias. Estas acciones previas al aprendizaje modelan los datos para minimizar distorsiones y anomalías, preservando la integridad del proceso de aprendizaje y fortaleciendo la precisión de los modelos predictivos resultantes, demostrando que la eficacia del modelo está intrínsecamente ligada a la calidad del preprocesamiento aplicado al conjunto de data original [@8877011]. 
+Estas acciones previas al aprendizaje modelan los datos para minimizar distorsiones y anomalías, preservando la integridad del proceso de aprendizaje y fortaleciendo la precisión de los modelos predictivos resultantes, demostrando que la eficacia del modelo está intrínsecamente ligada a la calidad del preprocesamiento aplicado al conjunto de data original [@8877011]. 
+
 
 ## Análisis Exploratorio
 
@@ -591,41 +617,6 @@ La solución al problema del punto 1 sería introducir algún método de **valid
 La medida *Accuracy* se presenta algo engañosa en este caso, ya que hay una gran cantidad de verdaderos negativos (TN) en la matriz de confusión. Por otra parte, el *F1-Score* es un representante de las medidas precision y recall. 
 
 
-
-
-
-## Selección de características
-
-Como se ha comentado anteriormente, la manera más efectiva de aumentar la medida *Precision* de nuestro modelo es realizando una búsqueda de características que aumenten la capacidad del modelo para poder clasificar correctamente una muestra positiva cuando la identifica. Este proceso se hará manualmente con un análisis de asociación y luego se aplicará un algoritmo *stepwise*.
-
-### Análisis de Asociación
-
-Como se ha comentado anteriormente, la selección de características es una etapa importante en el desarrollo de modelos predictivos, ya que las variables incorrectas pueden introducir ruido y desviar la precisión del modelo. Este análisis se presentará visualmente y se archivará detalladamente, proporcionando una base transparente y empírica para la inclusión o exclusión de características. 
-
-```{r, label=asociacion, fig.width=9, fig.height=6}
-source("./calculaPValor.R")
-
-resultados <- aplicaCalculaPValorATodosLosPares(df_imputado)
-
-
-ultimo_plot <- ggplot(resultados, aes(x = VariableX, y = VariableY, fill = Valor)) +
-  geom_tile(color = "white") +
-  geom_text(aes(label = sprintf("%.2g", Valor)), size = 3, color = "black", vjust = "inward") +
-  scale_fill_gradient(low = "white", high = "red", limits = c(0, 1), name = "P-valor") +
-  labs(title = "Heatmap de P-valores", x = "Variable X", y = "Variable Y") +
-  theme_minimal() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
-        axis.text.y = element_text(angle = 45, hjust = 1, vjust = 1),
-        axis.title.x = element_text(size = 14),
-        axis.title.y = element_text(size = 14),
-        plot.title = element_text(hjust = 0.5),
-        plot.margin = margin(t = 1, r = 1, b = 1, l = 1, unit = "cm")) 
-
-ultimo_plot
-```
-
-Observando entonces la figura superior, podemos concluir que las variables `Fenotipo`, `Grado`, `REst` y `RPro` parecen guardar una significancia estadística fuerte con la variable objetivo, `PCR`, por lo que son excelentes candidatas para componer un modelo. Se procederá entonces a contrastar la matriz de confusión del modelo entrenado con todas las variables y el modelo entrenado solo con estas. 
-
 ### Modelo ajustado 
 
 ```{r}
@@ -809,7 +800,7 @@ knitr::kable(results$test_metrics)
 :::
 
 
-Como podemos observar, la hipótesis de partida se ha comprobado, el método HoldOut ha mejorado los resultados con respecto a nuestra evaluación inicial sin la división del conjunto. La precisión y el recall han aumentado ligeramente, concordando con las limitaciones que se mencionaron anteriormente, la medida accuracy sigue siendo engañosa sobre la verdadera eficacia del modelo para poder clasificar correctamente las muestras. El conjunto de test, al ser tan pequeño y tan desbalanceado, es poco representativo. 
+
 
 Esta faceta engañosa de la medida de accuracy y la facilidad en la que la medida F1-Score puede ser muy cercana a cero cuando no hay datos suficientes justifica la necesidad de introducir una **nueva medida** para la evaluación de nuestro modelo. La curva **Receiver Operating Characteristic (ROC)** y el **Area Under the Curve (AUC)**. 
 
@@ -832,63 +823,61 @@ roc_metrics <- function(df, target_name, indices_list, set_name) {
   
   # Ajustar el modelo glm con el conjunto de entrenamiento
   formula_glm <- as.formula(paste(target_name, "~ Fenotipo + Grado + REst + RPro"))
-  model <- glm(formula_glm, data = splits$train, family = binomial())
+  model <- glm(formula_glm, data = splits$train, family = "binomial")
   
   # Hacer predicciones en el conjunto seleccionado
   predicciones <- predict(model, newdata = selected_set, type = "response")
   
-  # Calcular TPR y FPR para varios umbrales
-  target <- selected_set[[target_name]]
-  tpr <- fpr <- numeric()
-  for(threshold in seq(0, 1, by = 0.01)) {
-    predicciones_truncadas <- ifelse(predicciones > threshold, 1, 0)
-    
-    TP <- sum(predicciones_truncadas == 1 & target == 1)
-    TN <- sum(predicciones_truncadas == 0 & target == 0)
-    FP <- sum(predicciones_truncadas == 1 & target == 0)
-    FN <- sum(predicciones_truncadas == 0 & target == 1)
-    
-    tpr[length(tpr) + 1] <- TP / (TP + FN)
-    fpr[length(fpr) + 1] <- FP / (FP + TN)
-  }
+  # Calcular la curva ROC y el AUC utilizando pROC
+  roc_result <- roc(selected_set[[target_name]], predicciones)
   
-  # Calcular el AUC aproximado
-  auc <- sum((fpr[-length(fpr)] - fpr[-1]) * (tpr[-length(tpr)] + tpr[-1])) / 2
-  return(data.frame(FPR = fpr, TPR = tpr, Threshold = seq(0, 1, by = 0.01), AUC = auc))
+  return(roc_result)
 }
 
-plot_roc <- function(tpr, fpr, set_name, auc) {
-  # Graficar la curva ROC
-  plot(fpr, tpr, type = "l", col = "red", xlab = "1-Especificidad (FPR)", ylab = "Sensibilidad (TPR)",
-       main = paste("Curva ROC - Conjunto de", set_name, "\nAUC =", round(auc[1], 3)))
-  abline(0, 1, lty = 2)
+plot_roc <- function(roc_result, set_name) {
+  # Extraer datos de la curva ROC para ggplot
+  roc_data <- data.frame(
+    TPR = roc_result$sensitivities,
+    FPR = 1 - roc_result$specificities,
+    Thresholds = roc_result$thresholds
+  )
+  
+  # Graficar la curva ROC usando ggplot2
+  ggplot(roc_data, aes(x = FPR, y = TPR)) +
+    geom_line(color = 'blue', size = 1) +
+    geom_area(alpha = 0.2, fill = 'blue') +
+    geom_segment(aes(x = 0, y = 0, xend = 1, yend = 1), linetype = "dashed", color = "red") +
+    scale_x_continuous(limits = c(0, 1), name = "1 - Especificidad (FPR)") +
+    scale_y_continuous(limits = c(0, 1), name = "Sensibilidad (TPR)") +
+    ggtitle(paste("Curva ROC -", set_name, "- AUC:", round(roc_result$auc, 3))) +
+    theme_minimal() +
+    theme(plot.title = element_text(hjust = 0.5), 
+          text = element_text(size = 12))
 }
+
+
+
 ```
 ::: {.panel-tabset}
 
 ## ROC Train
-```{r}
-roc_metrics_train <- roc_metrics(df_imputado, "PCR", splits_indices, "train")
-plot_roc(roc_metrics_train$TPR, roc_metrics_train$FPR, "train", roc_metrics_train$AUC)
+```{r, warning=FALSE, message=FALSE}
+results <- roc_metrics(df_imputado, "PCR", splits_indices, "train")
+plot_roc(results, "train")
+results$auc
 ```
 ## ROC Test
 
-```{r}
-roc_metrics_train <- roc_metrics(df_imputado, "PCR", splits_indices, "test")
-plot_roc(roc_metrics_train$TPR, roc_metrics_train$FPR, "test", roc_metrics_train$AUC)
+```{r, warning=FALSE, message=FALSE}
+results <- roc_metrics(df_imputado, "PCR", splits_indices, "test")
+plot_roc(results, "test")
 ```
 
 :::
 
 Podemos afirmar que un modelo tiene un mejor rendimiento si su AUC se acerca a 1, sin embargo, la curva ROC puede darnos información adicional. Si observamos las gráficas generadas para conjunto de datos, podemos observar que el mejor AUC lo tiene el conjunto de train, esto tiene sentido, ya que estamos evaluando el modelo con el mismo conjunto con el que ha sido entrenado, por lo que esta gráfica no es muy representativa. 
 
-Se puede observar también que parece que hay valores para los que la Sensibilidad y la Especifidad son 1 ambos, cosa que puede parecer muy positiva, porque tendríamos un clasificador perfecto, sin embargo, lo que está pasando es que estamos poniendo un umbral tan alto que el modelo no está clasificando ninguna muestra como `PCR=1`, haciendo que haya un TPR y FPR perfectos, pero engañosos. 
-
-
-En el contexto de modelos orientados a ser ejecutados en conjuntos de datos clínicos, es crucial considerar el costo de los falsos positivos y falsos negativos. No es lo mismo diagnosticar a un paciente para luego descubrir que no estaba enfermo que diagnosticarlo como sano y descubrir que, realmente, estaba enfermo. Por lo tanto, es esencial seleccionar un umbral bajo para obtener una decente tasa de verdaderos positivos, sacrificando tener una razonable tasa de falsos positivos.
-
-Basándonos en estas consideraciones, podemos concluir que utilizaremos un umbral de 0.35 para la evaluación de los siguientes modelos. Este umbral busca equilibrar la sensibilidad y especificidad en función de las necesidades específicas de este proyecto y el contexto clínico, maximizando la utilidad de los modelos en aplicaciones clínicas reales.
-
+De forma natural, surge la necesidad de estabilizar la medida de la AUC para que no depende de una división desafortuniada del conjunto de datos. El primer acercamiento a este problema será usando el método de *Repeated Hold-Out*.
 
 ### Repeated Hold-Out
 
@@ -899,40 +888,36 @@ El método consiste en seleccionar al azar subconjuntos de entrenamiento y prueb
 Para implementar el Repeated Hold-Out en práctica, se puede emplear la función `createDataPartition` de la librería caret en R, la cual está diseñada para crear particiones estratificadas de datos. Esto asegura que cada partición refleje la distribución original de las clases del conjunto de datos completo. Se ha elegido entonces un 
 
 
-```{r, warning=FALSE}
-repHOut <- function(df, target_name, variables, n = 30, test_size = .2, threshold) {
+```{r, warning=FALSE, message=FALSE}
+repHOut <- function(df, target_name, variables, n = 30, test_size = 0.2, threshold = 0.5) {
   set.seed(42)
-  roc_data_list_test <- list()
   metrics_list_test <- list()
-  
-  
-  # Variable para mantener todos los datos de TPR y FPR para graficar
-  all_roc_data_test <- data.frame()
+  roc_data_list_test <- list()
 
   for (i in 1:n) {
     # División estratificada del conjunto de datos
-    train_indices <- createDataPartition(df[[target_name]], p = 1 - test_size, list = TRUE)
-    train_set <- df[train_indices[[1]], ]
-    test_set <- df[-train_indices[[1]], ]
-    
+    indices <- createDataPartition(df[[target_name]], p = 1 - test_size, list = TRUE)
+    train_set <- df[indices[[1]], ]
+    test_set <- df[-indices[[1]], ]
+
     # Crear modelo y entrenar con conjunto de entrenamiento
-    formula_glm <- as.formula(paste(target_name, "~", variables))  
-    model <- glm(formula_glm, data = train_set, family = binomial())
+    formula_glm <- as.formula(paste(target_name, "~", variables))
+    model <- glm(formula_glm, data = train_set, family = "binomial")
     
     # Realizar predicciones en test
-    predicciones_test <- predict(model, newdata = test_set, type = "response")
-    predicciones_trunc_test <- ifelse(predicciones_test < threshold, 0, 1)
-    metrics_data_test <- calcular_metricas(test_set[[target_name]], predicciones_trunc_test)
+    predicciones <- predict(model, newdata = test_set, type = "response")
+    predicciones_truncadas <- ifelse(predicciones < threshold, 0, 1)
     
-    # Suponiendo que roc_metrics es una función que calcula la curva ROC y que devuelva un data.frame
-    roc_data_test <- roc_metrics(df, target_name, list(train = train_indices[[1]], 
-                                                       test = -train_indices[[1]]), "test")
-    roc_data_test$Iteration <- i
-    all_roc_data_test <- rbind(all_roc_data_test, roc_data_test)
+    # Calcular métricas y guardar resultados
+    metrics_data_test <- calcular_metricas(test_set[[target_name]], predicciones_truncadas)
     metrics_list_test[[i]] <- metrics_data_test
+
+    # Calcular la curva ROC y almacenar
+    roc_result <- roc(test_set[[target_name]], predicciones)
+    roc_data_list_test[[i]] <- roc_result
   }
-  
-  return(list(MetricsTest = metrics_list_test, ROC_test = all_roc_data_test))
+
+  return(list(MetricsTest = metrics_list_test, ROC_test = roc_data_list_test))
 }
 
 results = repHOut(df=df_imputado, target_name="PCR", variables = c("."), threshold=.35)
@@ -956,6 +941,7 @@ plot_metrics <- function(metrics_list) {
  ggplot(metrics_df, aes(x = Iteration, y = Value, color = Metric)) +
     geom_point() +
     geom_line(aes(group = Metric)) +
+    coord_cartesian(ylim = c(0, 1)) +
     labs(title = "Comparación de Métricas por Iteración",
          x = "Iteración",
          y = "Valor",
@@ -968,57 +954,261 @@ plot_metrics <- function(metrics_list) {
 
 ## Métricas de Rendimiento
 
+```{r}
+calculate_average_metrics <- function(metrics_dfs) {
+  # Inicializar un data.frame para almacenar las sumas de cada métrica
+  summary_df <- data.frame(
+    Metric = c("Accuracy", "Precision", "Recall", "F1 Score"),
+    TotalValue = double(4),  # Preparar una columna de valores dobles para las sumas
+    stringsAsFactors = FALSE
+  )
+  
+  # Sumar los valores de cada métrica de todos los data.frames
+  for (df in metrics_dfs) {
+    # Asumimos que cada data.frame en metrics_dfs tiene las mismas métricas en el mismo orden
+    summary_df$TotalValue <- summary_df$TotalValue + df$Value
+  }
+  
+  # Calcular el promedio de cada métrica
+  summary_df$AverageValue <- summary_df$TotalValue / length(metrics_dfs)
+  
+  # Eliminar la columna de TotalValue, ya no se necesita
+  summary_df$TotalValue <- NULL
+  
+  # Devolver el data.frame con las métricas promedio
+  return(summary_df)
+}
+```
+
+
 ```{r, fig.width=7, fig.height=5}
 plot_metrics(results$MetricsTest)
+
+knitr::kable(calculate_average_metrics(results$MetricsTest))
 ```
 
 
 ## ROC
 
 ```{r}
-plot_roc_curves <- function(all_roc_data) {
- # Graficamos las curvas ROC
- ggplot(all_roc_data, aes(x = FPR, y = TPR, color = factor(Iteration))) +
+extract_roc_data <- function(roc_objects) {
+  roc_data_list <- list()
+  all_tprs <- list()
+  all_fprs <- list()
+  
+  # Extraer datos de cada objeto ROC
+  for (i in seq_along(roc_objects)) {
+    roc <- roc_objects[[i]]
+    
+    # Si roc$thresholds incluye Inf o -Inf, puedes eliminar esos puntos
+    valid_indices <- which(is.finite(roc$thresholds))
+    
+    df <- data.frame(
+      Label = paste("M", i, sep=""),
+      TPR = roc$sensitivities[valid_indices],
+      FPR = 1 - roc$specificities[valid_indices],
+      Thresholds = roc$thresholds[valid_indices],
+      AUC = rep(roc$auc, length(valid_indices))  
+    )
+    roc_data_list[[i]] <- df
+  }
+  roc_data <- do.call(rbind, roc_data_list)
+  return(roc_data)
+}
+
+
+roc_data <- extract_roc_data(results$ROC_test)
+
+
+# Calcular la curva ROC media
+mean_values_base <- aggregate(cbind(TPR, FPR) ~ Thresholds, data = roc_data[roc_data$Label != "Mean ROC",], FUN = mean)
+mean_auc <- mean(roc_data$AUC)
+
+# Añadir la curva ROC media al data.frame
+mean_values_base$Label <- "Mean ROC"
+mean_values_base$AUC <- mean_auc
+roc_data <- rbind(roc_data, mean_values_base)
+
+# Generar colores dinámicamente para cada etiqueta de iteración
+colors <- c("Mean ROC" = "red")
+for (i in seq_along(results$ROC_test)) {
+ colors[paste("M", i, sep="")] <- "grey"
+}
+
+# Crear la visualización con colores personalizados
+ggplot(roc_data, aes(x = FPR, y = TPR, color = Label)) +
+ geom_line() +
+ labs(title = "Curvas ROC por Iteración y ROC Media",
+       x = "FPR",
+       y = "TPR",
+       color = "Curva") +
+ theme_minimal() +
+ theme(legend.position = "right") +
+ scale_color_manual(values = colors)
+
+```
+
+```{r}
+
+# Calcular la curva ROC media
+mean_values_base <- aggregate(cbind(TPR, FPR) ~ Thresholds, data = roc_data[roc_data$Label != "Mean ROC",], FUN = mean)
+mean_auc <- mean(roc_data$AUC)
+
+# Añadir la curva ROC media al data.frame
+mean_values_base$Label <- "Mean ROC"
+mean_values_base$AUC <- mean_auc
+
+# Crear la visualización con solo la curva ROC media
+ggplot(mean_values_base, aes(x = FPR, y = TPR, color = Label)) +
+ geom_line() +
+ labs(title = "Curva ROC Media",
+       x = "FPR",
+       y = "TPR",
+       color = "Curva") +
+ theme_minimal() +
+ theme(legend.position = "bottom") +
+ scale_color_manual(values = c("Mean ROC" = "red"))
+
+```
+
+
+## AUC
+
+```{r}
+plot_aucs <- function(roc_curves) {
+  auc_values <- sapply(results$ROC_test, function(x) {as.numeric(x$auc)})
+  # Crear un data frame a partir de los valores AUC
+  auc_data <- data.frame(
+    Iteration = seq_along(auc_values),
+    AUC = auc_values
+  )
+  
+  # Crear el gráfico utilizando ggplot
+  ggplot(auc_data, aes(x = Iteration, y = AUC)) +
     geom_line() +
     geom_point() +
-    labs(title = "Curvas ROC por Iteración",
-         x = "False Positive Rate (FPR)",
-         y = "True Positive Rate (TPR)",
-         color = "Iteration") +
+    coord_cartesian(ylim = c(0, 1)) +
+    labs(title = "AUC vs Iteración",
+         x = "Iteración",
+         y = "AUC") +
     theme_minimal()
 }
 ```
 
-```{r, fig.width=7, fig.height=5}
-plot_roc_curves(results$ROC_test)
-```
-## AUC
-
-```{r}
-plot_aucs <- function(roc_results) {
-  auc_data <- roc_results
-  auc_data_unique <- auc_data %>%
-   distinct(Iteration, AUC, .keep_all = TRUE)
-  ggplot(auc_data_unique, aes(x = Iteration, y = AUC)) +
-   geom_line() +
-   geom_point() +
-   labs(title = "AUC vs Iteración",
-         x = "Iteración",
-         y = "AUC") +
-   theme_minimal()
-}
-```
-
 
 ```{r, fig.width=7, fig.height=5}
-plot_aucs(results$ROC_test)
+plot_aucs(results)
 ```
 
 :::
 
+
+## K-Fold Cross Validation
+
+```{r, message=FALSE}
+k_fold_cv <- function(df, target_name, variables, k = 25, test_size = 0.2, threshold = 0.35) {
+  set.seed(42)  
+  
+  test_indices <- createDataPartition(df[[target_name]], p = test_size, list = TRUE)[[1]]
+  validation_indices <- setdiff(1:nrow(df), test_indices)
+  
+  train_set <- df[validation_indices, ]
+  test_set <- df[test_indices, ]
+  
+  metrics_list_test <- list()
+  roc_data_list_test <- list()
+
+  # Dividir el conjunto de entrenamiento en k partes
+  folds <- createFolds(train_set[[target_name]], k = k, list = TRUE)
+
+  # Realizar k-fold CV
+  for (i in seq_along(folds)) {
+    fold_indices <- folds[[i]]
+    train_indices_fold <- setdiff(validation_indices, fold_indices)
+    valid_indices_fold <- fold_indices
+    
+    # Ajustar el modelo con las variables seleccionadas en el conjunto de entrenamiento del fold actual
+    model_formula <- as.formula(paste(target_name, "~", paste(variables, collapse = "+")))
+    model <- glm(model_formula, data = df[train_indices_fold, ], family = "binomial")
+
+    # Realizar predicciones en el conjunto de validación del fold actual
+    predictions <- predict(model, newdata = df[valid_indices_fold, ], type = "response")
+    predictions <- ifelse(predictions > threshold, 1, 0)
+
+    # Calcular y almacenar métricas
+    metrics <- calcular_metricas(df[valid_indices_fold, target_name], predictions)
+    metrics_list_test[[i]] <- metrics
+    
+    # Calcular y almacenar datos ROC
+    roc_curve <- roc(response = df[valid_indices_fold, target_name], predictor = as.numeric(predictions))
+    roc_data_list_test[[i]] <- list(roc_curve = roc_curve, auc = auc(roc_curve))
+  }
+  
+  # Evaluar el modelo en el conjunto de test
+  test_predictions <- predict(model, newdata = test_set, type = "response")
+  test_predictions <- ifelse(test_predictions > threshold, 1, 0)
+  test_metrics <- calcular_metricas(test_set[[target_name]], test_predictions)
+  test_roc_curve <- roc(response = test_set[[target_name]], predictor = as.numeric(test_predictions))
+  
+  return(list(MetricsTest = metrics_list_test, 
+              ROC_test = roc_data_list_test, 
+              MetricsTestSet = test_metrics,
+              ROCRocTestSet = test_roc_curve))
+}
+
+results_kcv <- k_fold_cv(df=df_imputado,
+                         target_name="PCR",
+                         variables=".")
+```
+
+
+```{r}
+plot_aucs(results_kcv$ROC_test)
+```
+
+```{r}
+
+plot_metrics(results_kcv$MetricsTest)
+knitr::kable(calculate_average_metrics(results_kcv$MetricsTest))
+
+```
+
+
+## Selección de características
+
+Como se ha comentado anteriormente, la manera más efectiva de aumentar la medida *Precision* de nuestro modelo es realizando una búsqueda de características que aumenten la capacidad del modelo para poder clasificar correctamente una muestra positiva cuando la identifica. Este proceso se hará manualmente con un análisis de asociación y luego se aplicará un algoritmo *stepwise*.
+
+### Análisis de Asociación
+
+Como se ha comentado anteriormente, la selección de características es una etapa importante en el desarrollo de modelos predictivos, ya que las variables incorrectas pueden introducir ruido y desviar la precisión del modelo. Este análisis se presentará visualmente y se archivará detalladamente, proporcionando una base transparente y empírica para la inclusión o exclusión de características. 
+
+```{r, label=asociacion, fig.width=9, fig.height=6}
+source("./calculaPValor.R")
+
+resultados <- aplicaCalculaPValorATodosLosPares(df_imputado)
+
+
+ultimo_plot <- ggplot(resultados, aes(x = VariableX, y = VariableY, fill = Valor)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = sprintf("%.2g", Valor)), size = 3, color = "black", vjust = "inward") +
+  scale_fill_gradient(low = "white", high = "red", limits = c(0, 1), name = "P-valor") +
+  labs(title = "Heatmap de P-valores", x = "Variable X", y = "Variable Y") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
+        axis.text.y = element_text(angle = 45, hjust = 1, vjust = 1),
+        axis.title.x = element_text(size = 14),
+        axis.title.y = element_text(size = 14),
+        plot.title = element_text(hjust = 0.5),
+        plot.margin = margin(t = 1, r = 1, b = 1, l = 1, unit = "cm")) 
+
+ultimo_plot
+```
+
+Observando entonces la figura superior, podemos concluir que las variables `Fenotipo`, `Grado`, `REst` y `RPro` parecen guardar una significancia estadística fuerte con la variable objetivo, `PCR`, por lo que son excelentes candidatas para componer un modelo. Se procederá entonces a contrastar la matriz de confusión del modelo entrenado con todas las variables y el modelo entrenado solo con estas. 
+
 ### Algoritmo Genético
 
-```{r, warning=FALSE}
+```{r, warning=FALSE, message=FALSE}
 source("./GAFeatureSelection.R")
 
 ga_results <- ga_featureSelection(df=df_imputado,
@@ -1040,12 +1230,15 @@ for (i in 1:nrow(ga_results@solution)) {
 ```
 
 
-```{r}
+```{r, message=FALSE}
 
-results = repHOut(df=df_imputado, target_name="PCR", 
-                variables = "Edad+REst+RPro+Estadio+NodAfec+Grado", threshold=.35)
-plot_metrics(results$MetricsTest)
-plot_aucs(results$ROC_test)
+results_ga = repHOut(df=df_imputado, target_name="PCR", 
+                variables = "REst+RPro+Estadio+Fenotipo", threshold=.35)
+plot_metrics(results_ga$MetricsTest)
+plot_aucs(results_ga$ROC_test)
+
+knitr::kable(calculate_average_metrics(results_ga$MetricsTest))
+
 
 ```
 

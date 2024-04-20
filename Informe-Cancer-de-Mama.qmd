@@ -565,31 +565,38 @@ En la salida del bloque de código superior podemos observar la matriz de confus
 
 ```{r}
 calcular_metricas <- function(target, predicciones_truncadas) {
- TP <- sum(predicciones_truncadas == 1 & target == 1)
- TN <- sum(predicciones_truncadas == 0 & target == 0)
- FP <- sum(predicciones_truncadas == 1 & target == 0)
- FN <- sum(predicciones_truncadas == 0 & target == 1)
-  
- Accuracy <- (TP + TN) / (TP + TN + FN + FP)
- Precision <- TP / (TP + FP)
- Recall <- TP / (TP + FN)
- F1score <- (2 * Precision * Recall) / (Precision + Recall)
-  
- # Reemplazar NA o NaN por 0
- Accuracy <- ifelse(is.na(Accuracy) | is.nan(Accuracy), 0, Accuracy)
- Precision <- ifelse(is.na(Precision) | is.nan(Precision), 0, Precision)
- Recall <- ifelse(is.na(Recall) | is.nan(Recall), 0, Recall)
- F1score <- ifelse(is.na(F1score) | is.nan(F1score), 0, F1score)
-  
- df_medidas <- data.frame(
+  TP <- sum(predicciones_truncadas == 1 & target == 1)
+  TN <- sum(predicciones_truncadas == 0 & target == 0)
+  FP <- sum(predicciones_truncadas == 1 & target == 0)
+  FN <- sum(predicciones_truncadas == 0 & target == 1)
+
+  Accuracy <- (TP + TN) / (TP + TN + FN + FP)
+  Precision <- ifelse(TP + FP == 0, 0, TP / (TP + FP))
+  Recall <- ifelse(TP + FN == 0, 0, TP / (TP + FN))
+  F1score <- ifelse(Precision + Recall == 0, 0, (2 * Precision * Recall) / (Precision + Recall))
+
+  # Crear data.frame para métricas de rendimiento
+  df_metricas_rendimiento <- data.frame(
     Metric = c("Accuracy", "Precision", "Recall", "F1 Score"),
     Value = c(Accuracy, Precision, Recall, F1score)
- )
-  
- return(df_medidas)
+  )
+
+  # Crear data.frame para tasas de verdaderos y falsos positivos y negativos
+  df_rates <- data.frame(
+    Metric = c("True Positives", "True Negatives", "False Positives", "False Negatives"),
+    Value = c(TP, TN, FP, FN)
+  )
+
+  # Devolver una lista de data.frames
+  list(
+    Metrics = df_metricas_rendimiento,
+    Rates = df_rates
+  )
 }
 
-knitr::kable(calcular_metricas(target, predicciones_truncadas_inicial))
+metricas = calcular_metricas(target, predicciones_truncadas_inicial)
+knitr::kable(metricas[1])
+knitr::kable(metricas[2])
 ```
 
 Apoyándonos en la matriz de confusión y en las métricas generadas en el bloque de código superior podemos concluir:
@@ -627,39 +634,7 @@ La solución al problema del punto 1 sería introducir algún método de **valid
 
 La medida *Accuracy* se presenta algo engañosa en este caso, ya que hay una gran cantidad de verdaderos negativos (TN) en la matriz de confusión. Por otra parte, el *F1-Score* es un representante de las medidas precision y recall. 
 
-
-### Modelo ajustado 
-
-```{r}
-lr_model_ajustado <- glm(PCR ~ Fenotipo + Grado + REst + RPro, data=df_imputado, family="binomial")
-
-predicciones <- predict(lr_model_ajustado, type = "response")
-
-pred <- data.frame(
-  y_true = target,
-  y_pred = predicciones
-)
-
-threshold = 0.5
-predicciones_truncadas_ajustado <- ifelse(predicciones < threshold, 0, 1)
-
-```
-
-
-
-### Conclusión
-
-```{r}
-#| layout-ncol: 2
-#| fig-cap: 
-#|   - "Matriz de Confusión del modelo con características seleccionadas"
-#|   - "Matriz del Confusión del modelo con características seleccionadas y algoritmo stepwise aplicado"
-
-
-plot_confMat(predicciones_truncadas_inicial, target)
-plot_confMat(predicciones_truncadas_ajustado, target)
-```
-Como podemos observar, el modelo para el cual se han elegido las variables más correladas no consigue aprender bien el patrón asociado a `PCR=1`, significando que no tiene capacidad de clasificación. 
+La necesidad de una validación interna radica en la intención de medir la capacidad predictiva del modelo sobre muestras que no haya visto antes. Con este fin, se introducirán a continuación algunas de estas técnicas, para, finalmente, decidir cuál se ajusta mejor al conjunto de datos y modelo que se pretende construir. 
 
 
 ## Validación Interna
@@ -784,7 +759,9 @@ evaluate_model <- function(df, target_name, splits_indices, threshold = 0.5) {
   # Calcular y almacenar la matriz de confusión y métricas para el conjunto de prueba
   results <- list()
   results[["test_conf_mat"]] <- plot_confMat(predicciones_truncadas, test_set[[target_name]])
-  results[["test_metrics"]] <- calcular_metricas(test_set[[target_name]], predicciones_truncadas)
+  metricas <- calcular_metricas(test_set[[target_name]], predicciones_truncadas)
+  results[["test_metrics"]] <- metricas[1]
+  results[["rates"]] <- metricas[2]
   return(results)
 }
 
@@ -886,15 +863,15 @@ plot_roc(results, "test")
 
 :::
 
-Podemos afirmar que un modelo tiene un mejor rendimiento si su AUC se acerca a 1, sin embargo, la curva ROC puede darnos información adicional. Si observamos las gráficas generadas para conjunto de datos, podemos observar que el mejor AUC lo tiene el conjunto de train, esto tiene sentido, ya que estamos evaluando el modelo con el mismo conjunto con el que ha sido entrenado, por lo que esta gráfica no es muy representativa. 
+Si observamos las gráficas generadas para conjunto de datos, podemos observar que el mejor AUC lo tiene el conjunto de train, esto tiene sentido, ya que estamos evaluando el modelo con el mismo conjunto con el que ha sido entrenado, por lo que esta gráfica no es muy representativa. 
 
-De forma natural, surge la necesidad de estabilizar la medida de la AUC para que no depende de una división desafortuniada del conjunto de datos. El primer acercamiento a este problema será usando el método de *Repeated Hold-Out*.
+De forma natural, surge la necesidad de estabilizar la medida de la AUC para que no dependa de una división desafortuniada del conjunto de datos. El primer acercamiento a este problema será usando el método de *Repeated Hold-Out*.
 
 ### Repeated Hold-Out
 
-Mientras que el Hold-Out tradicional divide el conjunto de datos en una sola partición de entrenamiento y prueba, el Repeated Hold-Out repite este proceso múltiples veces con diferentes particiones aleatorias. Este enfoque reduce la varianza asociada con la selección aleatoria de los conjuntos de datos, proporcionando así una visión más fiable de la capacidad de generalización del modelo.
+Mientras que el Hold-Out tradicional divide el conjunto de datos en una sola partición de entrenamiento y prueba, el Repeated Hold-Out repite este proceso múltiples veces con diferentes particiones aleatorias. Este enfoque reduce la incertidumbre asociada con la selección aleatoria de los conjuntos de datos, proporcionando así una visión más fiable de la capacidad de generalización del modelo y unas métricas más estables.
 
-El método consiste en seleccionar al azar subconjuntos de entrenamiento y prueba en cada repetición, entrenar el modelo con el conjunto de entrenamiento y evaluarlo con el conjunto de prueba. Este procedimiento ayuda a reducir el riesgo de que **una única división aleatoria pueda dar lugar a un conjunto de entrenamiento o prueba que no sea representativo de la poblidad total**, lo cual podría sesgar las métricas de rendimiento.
+Podemos coincidir entonces en que este procedimiento ayuda a reducir el riesgo de que **una única división aleatoria pueda dar lugar a un conjunto de entrenamiento o prueba que no sea representativo de la poblidad total**, lo cual podría sesgar las métricas de rendimiento.
 
 Para implementar el Repeated Hold-Out en práctica, se puede emplear la función `createDataPartition` de la librería caret en R, la cual está diseñada para crear particiones estratificadas de datos. Esto asegura que cada partición refleje la distribución original de las clases del conjunto de datos completo. Se ha elegido entonces un 
 
@@ -903,16 +880,17 @@ Para implementar el Repeated Hold-Out en práctica, se puede emplear la función
 repHOut <- function(df, target_name, variables, n = 30, test_size = 0.2, threshold = 0.5) {
   set.seed(42)
   metrics_list_test <- list()
+  rates_list_test <- list()
   roc_data_list_test <- list()
 
   for (i in 1:n) {
     # División estratificada del conjunto de datos
     indices <- createDataPartition(df[[target_name]], p = 1 - test_size, list = TRUE)
-    train_set <- df[indices[[1]], ]
-    test_set <- df[-indices[[1]], ]
+    train_set <- df[indices[[1]], , drop = FALSE]
+    test_set <- df[-indices[[1]], , drop = FALSE]
 
     # Crear modelo y entrenar con conjunto de entrenamiento
-    formula_glm <- as.formula(paste(target_name, "~", variables))
+    formula_glm <- as.formula(paste(target_name, "~", paste(variables, collapse = "+")))
     model <- glm(formula_glm, data = train_set, family = "binomial")
     
     # Realizar predicciones en test
@@ -920,22 +898,22 @@ repHOut <- function(df, target_name, variables, n = 30, test_size = 0.2, thresho
     predicciones_truncadas <- ifelse(predicciones < threshold, 0, 1)
     
     # Calcular métricas y guardar resultados
-    metrics_data_test <- calcular_metricas(test_set[[target_name]], predicciones_truncadas)
-    metrics_list_test[[i]] <- metrics_data_test
+    results <- calcular_metricas(test_set[[target_name]], predicciones_truncadas)
+    metrics_list_test[[i]] <- results$Metrics
+    rates_list_test[[i]] <- results$Rates
 
     # Calcular la curva ROC y almacenar
-    roc_result <- roc(test_set[[target_name]], predicciones)
+    roc_result <- roc(response = test_set[[target_name]], predictor = predicciones)
     roc_data_list_test[[i]] <- roc_result
   }
 
-  return(list(MetricsTest = metrics_list_test, ROC_test = roc_data_list_test))
+  return(list(MetricsTest = metrics_list_test, ROC_test = roc_data_list_test, Rates = rates_list_test))
 }
 
 results = repHOut(df=df_imputado, target_name="PCR", variables = c("."), threshold=.35)
-
 ```
 
-
+Habiendo obtenidos los resultados para la evaluación del modelo con todas las variables, un umbral de 0.35 y un total de 30 particiones en el Repeated Hold-Out, procederemos al análisis y visualización de gráficas. 
 
 ```{r}
 plot_metrics <- function(metrics_list) {
@@ -989,6 +967,29 @@ calculate_average_metrics <- function(metrics_dfs) {
   # Devolver el data.frame con las métricas promedio
   return(summary_df)
 }
+
+calculate_average_rates <- function(rates_dfs) {
+  # Inicializar un data.frame para almacenar las sumas de cada tasa
+  summary_df <- data.frame(
+    Metric = c("True Positives", "True Negatives", "False Positives", "False Negatives"),
+    TotalValue = double(4),  # Preparar una columna de valores dobles para las sumas
+    stringsAsFactors = FALSE
+  )
+  
+  for (df in rates_dfs) {
+    summary_df$TotalValue <- summary_df$TotalValue + df$Value
+  }
+  
+  # Calcular el promedio de cada tasa
+  summary_df$AverageValue <- round(summary_df$TotalValue / length(rates_dfs))
+  
+  # Eliminar la columna de TotalValue, ya no se necesita
+  summary_df$TotalValue <- NULL
+  
+  # Devolver el data.frame con las tasas promedio
+  return(summary_df)
+}
+
 ```
 
 
@@ -996,6 +997,7 @@ calculate_average_metrics <- function(metrics_dfs) {
 plot_metrics(results$MetricsTest)
 
 knitr::kable(calculate_average_metrics(results$MetricsTest))
+knitr::kable(calculate_average_rates(results$Rates))
 ```
 
 
@@ -1003,63 +1005,49 @@ knitr::kable(calculate_average_metrics(results$MetricsTest))
 
 ```{r}
 extract_roc_data <- function(roc_objects) {
-  roc_data_list <- list()
-  all_tprs <- list()
-  all_fprs <- list()
-  
-  # Extraer datos de cada objeto ROC
-  for (i in seq_along(roc_objects)) {
-    roc <- roc_objects[[i]]
+    roc_data_list <- list()
     
-    # Si roc$thresholds incluye Inf o -Inf, puedes eliminar esos puntos
-    valid_indices <- which(is.finite(roc$thresholds))
-    
-    df <- data.frame(
-      Label = paste("M", i, sep=""),
-      TPR = roc$sensitivities[valid_indices],
-      FPR = 1 - roc$specificities[valid_indices],
-      Thresholds = roc$thresholds[valid_indices],
-      AUC = rep(roc$auc, length(valid_indices))  
-    )
-    roc_data_list[[i]] <- df
-  }
-  roc_data <- do.call(rbind, roc_data_list)
-  return(roc_data)
+    # Extraer datos de cada objeto ROC
+    for (i in seq_along(roc_objects)) {
+        roc <- roc_objects[[i]]
+        
+        # Filtrar umbrales infinitos
+        valid_indices <- which(is.finite(roc$thresholds))
+        
+        df <- data.frame(
+            Label = paste("M", i, sep=""),
+            TPR = roc$sensitivities[valid_indices],
+            FPR = 1 - roc$specificities[valid_indices],
+            Thresholds = roc$thresholds[valid_indices],
+            AUC = rep(roc$auc, length(valid_indices))  
+        )
+        roc_data_list[[i]] <- df
+    }
+    roc_data <- do.call(rbind, roc_data_list)
+    return(roc_data)
 }
 
-
+# Asumimos que 'results$ROC_test' es una lista de objetos ROC
 roc_data <- extract_roc_data(results$ROC_test)
 
+# Crear una paleta de colores dinámica basada en la cantidad de curvas ROC
+colors <- setNames(colorRampPalette(RColorBrewer::brewer.pal(8, "Set1"))(length(results$ROC_test)),
+                   paste("M", seq_along(results$ROC_test), sep=""))
 
-# Calcular la curva ROC media
-mean_values_base <- aggregate(cbind(TPR, FPR) ~ Thresholds, data = roc_data[roc_data$Label != "Mean ROC",], FUN = mean)
-mean_auc <- mean(roc_data$AUC)
-
-# Añadir la curva ROC media al data.frame
-mean_values_base$Label <- "Mean ROC"
-mean_values_base$AUC <- mean_auc
-roc_data <- rbind(roc_data, mean_values_base)
-
-# Generar colores dinámicamente para cada etiqueta de iteración
-colors <- c("Mean ROC" = "red")
-for (i in seq_along(results$ROC_test)) {
- colors[paste("M", i, sep="")] <- "grey"
-}
-
-# Crear la visualización con colores personalizados
+# Crear la visualización con colores personalizados para cada iteración
 ggplot(roc_data, aes(x = FPR, y = TPR, color = Label)) +
- geom_line() +
- labs(title = "Curvas ROC por Iteración y ROC Media",
-       x = "FPR",
-       y = "TPR",
-       color = "Curva") +
- theme_minimal() +
- theme(legend.position = "right") +
- scale_color_manual(values = colors)
+    geom_line() +
+    labs(title = "Curvas ROC por Iteración",
+         x = "FPR (1 - Especificidad)",
+         y = "TPR (Sensibilidad)",
+         color = "Iteración") +
+    theme_minimal() +
+    scale_color_manual(values = colors)
+
 
 ```
 
-```{r}
+```{r, eval=FALSE}
 
 # Calcular la curva ROC media
 mean_values_base <- aggregate(cbind(TPR, FPR) ~ Thresholds, data = roc_data[roc_data$Label != "Mean ROC",], FUN = mean)
@@ -1113,13 +1101,26 @@ plot_aucs(results)
 
 :::
 
+Como se puede obserar, el uso del Repeated Hold-Out ha estabilizado los valores finales de las métricas de rendimiento. Si se presta atención a las gráficas de rendimiento y AUC, podemos observar que la partición de datos influye de manera directa en el rendimiento del modelo. 
 
-## K-Fold Cross Validation
+A pesar de su potencial, la literatura científica no acepta del todo este método para evaluar el rendimiento de un modelo, esto se debe a que aún deja algo de incertidumbre sobre la aleatoriedad en la que se reparten los datos para cada iteración, pudiendo aparecer una muestra en todas las particiones de entrenamiento, mientras que otras, nada. Es por esto que surge la necesidad de introducir un método que pruebe el modelo con todas las posibles divisiones del conjunto de datos, el *K-Fold Cross Validation*.
+
+
+### K-Fold Cross Validation
+
+La técnica de k-fold cross-validation es un método ampliamente utilizado en la literatura científica para evaluar la capacidad de generalización de los modelos de machine learning. Consiste en dividir el conjunto de datos en k subconjuntos o "folds" de igual tamaño. Cada fold se utiliza como conjunto de validación, mientras que los k-1 folds restantes se utilizan como conjunto de entrenamiento. Este proceso se repite k veces, de manera que cada fold tiene la oportunidad de ser utilizado como conjunto de validación una vez.
+
+Como se mencionó anteriormnete, la principal ventaja de la k-fold cross-validation es que todos los datos se utilizan tanto para el entrenamiento como para la validación, y cada observación se utiliza para la validación exactamente una vez. Esto permite obtener una estimación más robusta y fiable del rendimiento del modelo en comparación con otros métodos, como la simple división en conjuntos de entrenamiento y prueba.
+
+Sin embargo, la k-fold cross-validation también presenta algunos problemas. Uno de ellos es el coste computacional, ya que el modelo debe entrenarse y evaluarse k veces, lo que puede ser costoso en términos de tiempo y recursos, especialmente para modelos complejos y conjuntos de datos grandes. Además, la elección del número de folds (k) puede afectar al sesgo y la varianza de la estimación del error. Un valor grande de k reduce el sesgo pero aumenta la varianza, mientras que un valor pequeño de k tiene justo el efecto contrario. 
+
+Debido a que el conjunto de datos con el que estamos trabajando no tiene una cantidad de muestras muy elevada pero queremos que los resultados del k-fold CV sean representativos, se ha concluído empíricamente que un valor de k igual a 10 es adecuado. 
 
 ```{r, message=FALSE}
-k_fold_cv <- function(df, target_name, variables, k = 25, test_size = 0.2, threshold = 0.35) {
+k_fold_cv <- function(df, target_name, variables, k = 10, test_size = 0.2, threshold = 0.35) {
   set.seed(42)  
   
+  # Separar los datos en conjuntos de prueba y validación
   test_indices <- createDataPartition(df[[target_name]], p = test_size, list = TRUE)[[1]]
   validation_indices <- setdiff(1:nrow(df), test_indices)
   
@@ -1127,6 +1128,7 @@ k_fold_cv <- function(df, target_name, variables, k = 25, test_size = 0.2, thres
   test_set <- df[test_indices, ]
   
   metrics_list_test <- list()
+  rates_list_test <- list()
   roc_data_list_test <- list()
 
   # Dividir el conjunto de entrenamiento en k partes
@@ -1144,11 +1146,12 @@ k_fold_cv <- function(df, target_name, variables, k = 25, test_size = 0.2, thres
 
     # Realizar predicciones en el conjunto de validación del fold actual
     predictions <- predict(model, newdata = df[valid_indices_fold, ], type = "response")
-    predictions <- ifelse(predictions > threshold, 1, 0)
+    predictions_trunc <- ifelse(predictions > threshold, 1, 0)
 
-    # Calcular y almacenar métricas
-    metrics <- calcular_metricas(df[valid_indices_fold, target_name], predictions)
-    metrics_list_test[[i]] <- metrics
+    # Calcular y almacenar métricas y rates
+    results <- calcular_metricas(df[valid_indices_fold, target_name], predictions_trunc)
+    metrics_list_test[[i]] <- results$Metrics
+    rates_list_test[[i]] <- results$Rates
     
     # Calcular y almacenar datos ROC
     roc_curve <- roc(response = df[valid_indices_fold, target_name], predictor = as.numeric(predictions))
@@ -1157,41 +1160,67 @@ k_fold_cv <- function(df, target_name, variables, k = 25, test_size = 0.2, thres
   
   # Evaluar el modelo en el conjunto de test
   test_predictions <- predict(model, newdata = test_set, type = "response")
-  test_predictions <- ifelse(test_predictions > threshold, 1, 0)
-  test_metrics <- calcular_metricas(test_set[[target_name]], test_predictions)
-  test_roc_curve <- roc(response = test_set[[target_name]], predictor = as.numeric(test_predictions))
+  test_predictions_trunc <- ifelse(test_predictions > threshold, 1, 0)
+  test_results <- calcular_metricas(test_set[[target_name]], test_predictions_trunc)
+  test_roc_curve <- roc(response = test_set[[target_name]], predictor = as.numeric(test_predictions_trunc))
   
   return(list(MetricsTest = metrics_list_test, 
+              RatesTest = rates_list_test,
               ROC_test = roc_data_list_test, 
-              MetricsTestSet = test_metrics,
+              MetricsTestSet = test_results$Metrics,
+              RatesTestSet = test_results$Rates,
               ROCRocTestSet = test_roc_curve))
 }
+
 
 results_kcv <- k_fold_cv(df=df_imputado,
                          target_name="PCR",
                          variables=".")
 ```
 
+::: {.panel-tabset}
 
-```{r}
-plot_aucs(results_kcv$ROC_test)
-```
+## Métricas de Rendimiento
 
 ```{r}
 
 plot_metrics(results_kcv$MetricsTest)
 knitr::kable(calculate_average_metrics(results_kcv$MetricsTest))
+knitr::kable(calculate_average_rates(results_kcv$RatesTest))
+```
+## Métricas de Rendimiento: Test
+
+```{r}
+knitr::kable(results_kcv$MetricsTestSet)
+knitr::kable(results_kcv$RatesTestSet)
 
 ```
 
 
+## AUC
+
+
+```{r}
+plot_aucs(results_kcv$ROC_test)
+```
+
+:::
+
+Como se puede observar, los resultados obtenidos a través del K-Fold CV son más prometedores que con el Repeated Hold-Out. Sin embargo, hay que tener en cuenta que cada fold del K-Fold CV contiene 40 muestras, que, comparando con las 100 muestras con las que se evalúa en cada iteración el repeated Hold-Out, puede ser algo escaso, ya que las métricas de rendimiento computadas a partir de esas predicciones pueden no ser demasiado representativas. 
+
+Si bien es verdad que para un conjunto de datos reducido en cuanto a tamaño como es el nuestro el k-fold CV no tiene un elevado coste computacional, la poca representabilidad de los folds de validación mencionada en el párrafo anterior hace que nos decantemos por el *repeated Hold-Out como método de validación interna para la selección de características*.
+
 ## Selección de características
 
-Como se ha comentado anteriormente, la manera más efectiva de aumentar la medida *Precision* de nuestro modelo es realizando una búsqueda de características que aumenten la capacidad del modelo para poder clasificar correctamente una muestra positiva cuando la identifica. Este proceso se hará manualmente con un análisis de asociación y luego se aplicará un algoritmo *stepwise*.
+Todos los apartados anteriores de este estudio se han centrado en encontrar las métricas de rendimiento y métodos de validación interna que mejor se ajusten a nuestro conjunto de datos, ya sea por proveer las medidas más estables o la división en subconjuntos más razonable. 
+
+Habiendo sentado esta base sólida para realizar nuestra evaluación, podemos ahora proceder a seleccionar la combinación de características de nuestro conjunto de datos que produzca las mejores predicciones posibles para la variable objetivo, PCR. Con este fin, se han aplicado tres métodos de selección de características, y, aplicando el mismo método de validación interna, se comparará el rendimiento del modelo obtenido con las diferentes combinaciones de características que ofrezca cada método.
 
 ### Análisis de Asociación
 
-Como se ha comentado anteriormente, la selección de características es una etapa importante en el desarrollo de modelos predictivos, ya que las variables incorrectas pueden introducir ruido y desviar la precisión del modelo. Este análisis se presentará visualmente y se archivará detalladamente, proporcionando una base transparente y empírica para la inclusión o exclusión de características. 
+A través de los adecuados tests estadísticos se ha computado un mapa de calor en el que se representa el p-valor de cada par de variables del conjunto de datos. Las variables de cada par con un p-valor por debajo de 0.05 tendrán una asociación significativa, mientras que las que tengan un p-valor por debajo de 0.01, tendrán una asociación aún más fuerte. 
+
+Las características que guarden un p-valor por debajo de 0.05 con respecto a la variable objetivo, PCR, serán las que se tendrán en cuenta para la creación del modelo en este apartado.
 
 ```{r, label=asociacion, fig.width=9, fig.height=6}
 source("./calculaPValor.R")
@@ -1215,9 +1244,27 @@ ultimo_plot <- ggplot(resultados, aes(x = VariableX, y = VariableY, fill = Valor
 ultimo_plot
 ```
 
-Observando entonces la figura superior, podemos concluir que las variables `Fenotipo`, `Grado`, `REst` y `RPro` parecen guardar una significancia estadística fuerte con la variable objetivo, `PCR`, por lo que son excelentes candidatas para componer un modelo. Se procederá entonces a contrastar la matriz de confusión del modelo entrenado con todas las variables y el modelo entrenado solo con estas. 
+Podemos concluir que las variables `Fenotipo`, `Grado`, `REst` y `RPro` parecen guardar una significancia estadística fuerte con la variable objetivo, `PCR`, por lo que son excelentes candidatas para componer un modelo. 
+
+
+```{r, message=FALSE, warning=FALSE}
+results_repHout_asociacion = repHOut(df=df_imputado, target_name="PCR", 
+                variables = "Fenotipo + Grado + REst + RPro", threshold=.35)
+plot_metrics(results_repHout_asociacion$MetricsTest)
+plot_aucs(results_repHout_asociacion$ROC_test)
+
+knitr::kable(calculate_average_metrics(results_repHout_asociacion$MetricsTest))
+
+```
+
+Los resultados de esta selección de variables serán almacenados para su posterior discusión con respecto al resto de métodos.
+
 
 ### Algoritmo Genético
+
+Los algoritmos genéticos operan bajo el principio de la supervivencia del más apto, una idea prestada de la teoría darwiniana de la evolución. En la selección de características para el análisis de datos, este método se comporta como un proceso natural, probando diversas combinaciones de características para determinar cuál mejora el rendimiento predictivo del modelo [@babatunde2014genetic]. La "aptitud" de cada conjunto de características se mide mediante una función de fitness; en este caso, una combinación equilibrada de precisión y la puntuación F1. Como ya se explicó al principio del estudio, el accuracy capta la tasa de verdaderos positivos contra todas las predicciones positivas, mientras que el F1-score proporciona una medida armónica de la precisión y la sensibilidad. La decisión de combinar estos dos radica en que se garantiza una selección que no sólo es correcta cuando predice, sino que también es exhaustiva y precisa en sus predicciones positivas.
+
+A lo largo de múltiples "generaciones", el algoritmo genético realiza una serie de operaciones evolutivas: selecciona los mejores conjuntos de características (los más aptos), los cruza para explorar nuevas combinaciones y muta aleatoriamente para introducir variabilidad. Las características son representadas en el algoritmo genético por un vector de bits, y el sobrecruzamiento de dos individuos estará definido por la función lógica XOR. Se procederá entonces a ejecutar el algoritmo durante 100 generaciones con 25 individuos por generación.
 
 ```{r, warning=FALSE, message=FALSE}
 source("./GAFeatureSelection.R")
@@ -1229,6 +1276,7 @@ ga_results <- ga_featureSelection(df=df_imputado,
                                   nBits=(ncol(df_imputado)-1))
 ```
 
+Una vez finalizada la ejecución del algoritmo, podemos extraer el vector de bits que mejor se ha adaptado durante las diferentes generaciones. Aplicando este vector de bits a los nombres de las columnas de nuestro conjunto de datos, podemos obtener la combinación de características óptima:
 
 ```{r}
 feature_names <- names(df_imputado)[-which(names(df_imputado) == "PCR")]
@@ -1239,26 +1287,25 @@ for (i in 1:nrow(ga_results@solution)) {
 }
   
 ```
-
+La combinación de variables "REst, RPro, Her2, Estadio, Fenotipo" ha sido la mejor solución encontrada. Para poder comparar el rendimiento del modelo con esta combinación de variables, se procederá a evaluarlo mediante repeated Hold Out:
 
 ```{r, message=FALSE}
 
 results_ga = repHOut(df=df_imputado, target_name="PCR", 
-                variables = "REst+RPro+Estadio+Fenotipo", threshold=.35)
+                variables = "REst+RPro+Her2+Estadio+Fenotipo", threshold=.35)
 plot_metrics(results_ga$MetricsTest)
 plot_aucs(results_ga$ROC_test)
-
 knitr::kable(calculate_average_metrics(results_ga$MetricsTest))
-
-
 ```
+
+El principal problema de los algoritmos genético es su pobre reproducibilidad y lo poco deterministas que son. Por consecuencia, se asegura encontrar una solución, pero no se asegura que esta solución sea óptima, esto, sumado al hecho de que la ejecución de estos algoritmos puede ser computacionalmente exhaustiva, hace que no sean la mejor opción. Estos resultados serán comentados más adelante. 
+
 
 ### Fuerza Bruta
 
-```{r}
-library(caret)  # Para createDataPartition
+Los algoritmos de fuerza bruta son un enfoque determinista pero computacionalmente muy exhaustivo, ya que prueba todas las posibles combinaciones de variables, para la resolución del problema de selección de características. Este algoritmo itera sobre todas las posibles combinaciones de variables del conjunto de datos, evaluando el modelo con un repeated Hold-Out y comparando los resultados para cada combinación de características, determinando la mejor de todas estas utilizando una media aritmética entre la F1-Score y el Accuracy (igual que en el algoritmo genético).
 
-# Función para calcular métricas incluyendo F1-score
+```{r,warning=FALSE, message=FALSE}
 calculate_metrics <- function(y_true, y_pred) {
   y_pred <- ifelse(y_pred < 0.35, 0, 1)
   TP <- sum(y_pred == 1 & y_true == 1)
@@ -1273,7 +1320,6 @@ calculate_metrics <- function(y_true, y_pred) {
   
   return(list(accuracy = accuracy, precision = precision, recall = recall, f1_score = f1_score))
 }
-
 # Función de fuerza bruta con repeated hold-out
 brute_force_glm_repeated <- function(df, target_name, n_repeats, test_size = 0.2) {
   feature_names <- setdiff(names(df), target_name)
@@ -1326,13 +1372,30 @@ brute_force_glm_repeated <- function(df, target_name, n_repeats, test_size = 0.2
   cat("Precision promedio:", best_metrics['precision'], "\n")
   cat("Recall promedio:", best_metrics['recall'], "\n")
   cat("F1-Score promedio:", best_metrics['f1_score'], "\n")
+  
+  return(best_combination)
 }
 
 # 
 
-brute_force_glm_repeated(df = df_imputado, target_name = "PCR", n_repeats = 30, test_size = 0.2)
+brute_force_best_combination <- brute_force_glm_repeated(df = df_imputado, target_name = "PCR", n_repeats = 30, test_size = 0.2)
 
 ```
+
+```{r, message=FALSE}
+
+results_bf = repHOut(df=df_imputado, target_name="PCR", 
+                variables = brute_force_best_combination, threshold=.35)
+plot_metrics(results_bf$MetricsTest)
+plot_aucs(results_bf$ROC_test)
+knitr::kable(calculate_average_metrics(results_bf$MetricsTest))
+```
+
+
+## Resultados y Discusión
+
+# Conclusión
+
 
 
 # Referencias

@@ -100,22 +100,33 @@ Los modelos de machine learning han demostrado ser efectivos en la clasificació
 Otro estudio destacó el uso de un modelo de aprendizaje profundo, TabNet, para predecir la involucración del nódulo linfático sentinel (SLN) en pacientes con cáncer de mama basándose en características preoperatorias. La aplicación exitosa de machine learning en la predicción de la metástasis del SLN subraya la capacidad de estos modelos para mejorar la precisión del diagnóstico y el tratamiento del cáncer de mama [@shahriarirad2024].
 
 
+## Metodología
+
+Como se ha mencionado anteriormente, el principal objetivo de este estudio es el de desarrollar un modelo de regresión logística, que, en el mejor de los casos, demostrará un rendimiento mayor o igual al de un profesional a de la salud a la hora de determinar si un paciente podría tener metástasis, o no. Con este objetivo, se seguirán una serie de pasos:
+
+1. Pre-procesamiento de los datos. 
+2. Validación inicial del modelo. 
+3. Establecimiento de medidas de rendimiento para la evaluación del modelo. 
+4. Establecimiento de procesos de validación interna para la evaluación del modelo. 
+5. Ingeniería de características. 
+6. Determinación del modelo final.
+
 # Pre-procesamiento de los datos
 
 ## Justificación
 
 Esta sección pretende abordar la etapa más crucial de todo el proceso de *Machine Learning* (ML), el curado de los datos, también conocido como pre-procesamiento. Este paso no es simplemente un prefacio al modelo predictivo, sino una fase determinante en la construcción de un modelo de aprendizaje automático robusto y eficaz. 
 
-Estas acciones previas al aprendizaje modelan los datos para minimizar distorsiones y anomalías, preservando la integridad del proceso de aprendizaje y fortaleciendo la precisión de los modelos predictivos resultantes, demostrando que la eficacia del modelo está intrínsecamente ligada a la calidad del preprocesamiento aplicado al conjunto de data original [@8877011]. 
+Estas acciones previas al aprendizaje modelan los datos para minimizar distorsiones y anomalías, preservando la integridad del proceso de aprendizaje y fortaleciendo la precisión de los modelos predictivos resultantes, demostrando que la eficacia del modelo está intrínsecamente ligada a la calidad del preprocesamiento aplicado al conjunto de datos original [@8877011]. 
 
 
 ## Análisis Exploratorio
 
-El fichero de data crudos, facilitado por el Dr. José Manuel Jerez Aragonés, se trata de un fichero `.csv` con una serie de variables detalladas en la @fig-desccol.
+El fichero de datos crudos, facilitado por el Dr. José Manuel Jerez Aragonés, se trata de un fichero `.csv` con una serie de variables detalladas en la @fig-desccol.
 
 ![Descripción de las variables.](preprocesamiento.png){#fig-desccol fig-align="center"}
 
-Generalmente, se descartarían las variables que no guardan una obvia relevancia clínica con respecto a la variable objetivo (**PCR**), en este caso, la variable **Muestra**. Antes de eliminar esta variable, se puede observar que hay diferentes caracteres comunes a las muestras de varios pacientes, estos caracteres representan el estudio al que pertenece el dato, y esto sí que puede tener importancia clínica, ya que podría ayudarnos a comprender si los pacientes de un estudio determinado guardan algún tipo de relación estadística, introduciendo así un posible sesgo en los data cuya fuerza dependerá de la cantidad de pacientes de ese estudio concreto. Es por esto que se va a crear la variable **Estudio**.
+Generalmente, se descartarían las variables que no guardan una obvia relevancia clínica con respecto a la variable objetivo (**PCR**), en este caso, la variable **Muestra**. Antes de eliminar esta variable, se puede observar que hay diferentes caracteres comunes a las muestras de varios pacientes, estos caracteres representan el estudio al que pertenece el dato, y esto sí que puede tener importancia clínica, ya que podría ayudarnos a comprender si los pacientes de un estudio determinado guardan algún tipo de relación estadística, introduciendo así un posible sesgo en los datos cuya fuerza dependerá de la cantidad de pacientes de ese estudio concreto. Es por esto que se va a crear la variable **Estudio**.
 
 ```{r}
 #| label: Variable Estudio
@@ -127,7 +138,7 @@ data$Estudio <- ifelse(grepl("^PERU", data$Muestra), "PERU",
 data$Muestra <- NULL
 ```
 
-Finalmente, se guardarán en un vector las variables cateóricas, y en otro, las numéricas. Este bloque se código se repetirá varias veces durante la limpieza de data, ya que la naturaleza de algunas variables puede cambiar. 
+Finalmente, se guardarán en un vector las variables cateóricas, y en otro, las numéricas. Este bloque se código se repetirá varias veces durante la limpieza de datos, ya que la naturaleza de algunas variables puede cambiar. 
 
 ```{r}
 #| label: categoricas y numericas
@@ -287,7 +298,7 @@ data <- data %>%
 graficar_barras_categoricas(resultados[[5]], categoricas[5])
 ```
 
-Los data de la variable *NodAfec* parecen estar en orden. 
+Los datos de la variable *NodAfec* parecen estar en orden. 
 
 ## Fenotipo
 
@@ -300,7 +311,7 @@ Los data de la variable *NodAfec* parecen estar en orden.
 graficar_barras_categoricas(resultados[[6]], categoricas[6])
 ```
 
-Los data de la variable *Fenotipo* parecen estar en orden. 
+Los datos de la variable *Fenotipo* parecen estar en orden. 
 
 ## Estudio
 

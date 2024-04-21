@@ -1250,12 +1250,28 @@ Podemos concluir que las variables `Fenotipo`, `Grado`, `REst` y `RPro` parecen 
 ```{r, message=FALSE, warning=FALSE}
 results_repHout_asociacion = repHOut(df=df_imputado, target_name="PCR", 
                 variables = "Fenotipo + Grado + REst + RPro", threshold=.35)
-plot_metrics(results_repHout_asociacion$MetricsTest)
-plot_aucs(results_repHout_asociacion$ROC_test)
-
-knitr::kable(calculate_average_metrics(results_repHout_asociacion$MetricsTest))
-
 ```
+
+::: {.panel-tabset}
+
+# Métricas de rendimiento
+
+```{r}
+plot_metrics(results_repHout_asociacion$MetricsTest)
+knitr::kable(calculate_average_metrics(results_repHout_asociacion$MetricsTest))
+knitr::kable(calculate_average_rates(results_repHout_asociacion$Rates))
+```
+
+## AUC
+
+```{r}
+plot_aucs(results_repHout_asociacion$ROC_test)
+```
+
+
+:::
+
+
 
 Los resultados de esta selección de variables serán almacenados para su posterior discusión con respecto al resto de métodos.
 
@@ -1293,10 +1309,27 @@ La combinación de variables "REst, RPro, Her2, Estadio, Fenotipo" ha sido la me
 
 results_ga = repHOut(df=df_imputado, target_name="PCR", 
                 variables = "REst+RPro+Her2+Estadio+Fenotipo", threshold=.35)
-plot_metrics(results_ga$MetricsTest)
-plot_aucs(results_ga$ROC_test)
-knitr::kable(calculate_average_metrics(results_ga$MetricsTest))
 ```
+
+::: {.panel-tabset}
+
+# Métricas de rendimiento
+
+```{r}
+plot_metrics(results_ga$MetricsTest)
+knitr::kable(calculate_average_metrics(results_ga$MetricsTest))
+knitr::kable(calculate_average_rates(results_ga$Rates))
+```
+
+## AUC
+
+```{r}
+plot_aucs(results_ga$ROC_test)
+```
+
+
+:::
+
 
 El principal problema de los algoritmos genético es su pobre reproducibilidad y lo poco deterministas que son. Por consecuencia, se asegura encontrar una solución, pero no se asegura que esta solución sea óptima, esto, sumado al hecho de que la ejecución de estos algoritmos puede ser computacionalmente exhaustiva, hace que no sean la mejor opción. Estos resultados serán comentados más adelante. 
 
@@ -1373,7 +1406,7 @@ brute_force_glm_repeated <- function(df, target_name, n_repeats, test_size = 0.2
   cat("Recall promedio:", best_metrics['recall'], "\n")
   cat("F1-Score promedio:", best_metrics['f1_score'], "\n")
   
-  return(best_combination)
+  return(list(Best_combo=best_combination, best_metrics=best_metrics))
 }
 
 # 
@@ -1385,14 +1418,119 @@ brute_force_best_combination <- brute_force_glm_repeated(df = df_imputado, targe
 ```{r, message=FALSE}
 
 results_bf = repHOut(df=df_imputado, target_name="PCR", 
-                variables = brute_force_best_combination, threshold=.35)
-plot_metrics(results_bf$MetricsTest)
-plot_aucs(results_bf$ROC_test)
-knitr::kable(calculate_average_metrics(results_bf$MetricsTest))
+                variables = brute_force_best_combination$Best_combo, threshold=.35)
+
 ```
 
 
+::: {.panel-tabset}
+
+# Métricas de rendimiento
+
+```{r}
+plot_metrics(results_bf$MetricsTest)
+knitr::kable(calculate_average_metrics(results_bf$MetricsTest))
+knitr::kable((calculate_average_rates(results_bf$Rates)))
+```
+
+## AUC
+
+```{r}
+plot_aucs(results_bf$ROC_test)
+```
+:::
+
+Los resultados del algoritmo de fuerza bruta son muy positivos, para una combinación de solo tres variables ha conseguido obtener una accuracy más alta que los dos otros métodos, sin embargo, el tiempo de ejecución del algoritmo también ha sido mayor. 
+
 ## Resultados y Discusión
+
+Finalmente, se procede a realizar una comparación de los modelos obtenidos. Debido a la necesidad de estimar la exactitud y precisión del modelo para determinar el valor de la clase objetivo (PCR) para datos a futuro, se ha utilizado la técnica de validación interna **repeated Hold-Out** con un total de **30 iteraciones** y un **umbral de 0.35**, dado el contexto clínico en el que se desarrolla el estudio. 
+
+En esta comparación se incluirán entonces las métricas de rendimiento más explicativas de todas: **Accuracy**, **Precision**, **Recall**, y, **F1-Score**. Se evaluarán cuatro modelos:
+
+- `TodasVariables`. Este modelo hace uso de todas las características del conjunto de datos: **Edad, REst, RPro, Her2, Estadio, NodAfec, Grado, Fenotipo y Estudio**.
+- `Asociacion`. Hace uso de las variables que guardan una mayor significancia estadística según el análisis de asociación realizado: **Fenotipo, Grado, REst y RPro**.
+- `Genético`. Hace uso de las variables obtenidas a través del vector de bits que se ajustó mejor durante todas las generaciones según al función de fitness definida: **REst, RPro, Her2, Estadio y Fenotipo**.
+- `FuerzaBruta`. Hace uso de las variables de salida del algoritmo determinista de fuerza bruta, el cual muestra la combinación de variables que mejor se ajusta a la condición programada para este: **Edad, REst y Grado**. 
+
+
+```{r}
+metricas_todas <-  calculate_average_metrics(results$MetricsTest)
+metricas_asoc <- calculate_average_metrics(results_repHout_asociacion$MetricsTest)
+metricas_gen <- calculate_average_metrics(results_ga$MetricsTest)
+metricas_bf <- calculate_average_metrics(results_bf$MetricsTest)
+
+combined_df_metrics <- data.frame(
+  Metric = metricas_asoc$Metric,  
+  TodasVariables = round(metricas_todas$AverageValue, 4),
+  Asociacion = round(metricas_asoc$AverageValue, 4),
+  Genetico = round(metricas_gen$AverageValue, 4),
+  FuerzaBruta = round(metricas_bf$AverageValue, 4)
+)
+knitr::kable(combined_df_metrics)
+```
+`Tabla 1:` Métricas de rendimiento para diferentes modelos
+---
+
+```{r}
+rates_todas <- calculate_average_rates(results$Rates)
+rates_asoc <- calculate_average_rates(results_repHout_asociacion$Rates)
+rates_gen <- calculate_average_rates(results_ga$Rates)
+rates_bf <- calculate_average_rates(results_bf$Rates)
+
+combined_df_rates <- data.frame(
+  Rate = rates_asoc$Metric, 
+  TodasVariables = rates_todas$AverageValue,
+  Asociacion = rates_asoc$AverageValue,
+  Genetico = rates_gen$AverageValue,
+  FuerzaBruta = rates_bf$AverageValue
+)
+
+knitr::kable(combined_df_rates)
+```
+`Tabla 2:` Valores de la Matriz de Confusión para distintos modelos
+---
+
+Como se puede observar en la Tabla 1, la combinación de variables que presenta un mayor valor de Accuracy es la combinación **FuerzaBruta**. Teniendo en cuenta además que el criterio que se programó en este algoritmo para seleccionar la mejor combinación de variables fue la media aritmética ponderada de Accurayc y F1Score, no es ninguna sorpresa que la combinación **FuerzaBruta** también tenga el valor de F1Score más alto, seguido muy de cerca (diferencia del orden de 1e-3) por la combinación **Asociacion**. 
+
+Al complementar la información expuesta en el anterior párrafo con la Tabla 2, podemos observar que el modelo que más Verdaderos Positivos (TP) ha obtenido es el modelo de **Asociación**, tenido en cuenta que es el modelo que más Falsos Positivos ha obtenido, podemos explicar que haya sido el modelo con el Recall más alto de la Tabla 1. Siguiendo por esta línea, podemos observar que las combinaciones **Genético** y **FuerzaBruta** han obtenido ambas el mismo número de verdaderos positivos, pero **FuerzaBruta** tiene menos falsos positivos, indicando que este modelo tiene una precisión más alta que **Genético**.
+
+Podemos entonces concluir que los modelos más aptos serían **FuerzaBruta** y **Asociación**, por lo que se procederá a comparar en profundidad ambos. La alta accuracy de la combinación de variables **FuerzaBruta** se debe a que el modelo tiene una mejor capacidad de clasificación de verdaderos negativos que **Asociación**. En un estudio clínico relacionado con la predicción de metástasis, como es este, el valor que se debería mantener más bajo es el de los *Falsos Negativos*. El caso ideal es que un paciente sea diagnosticado correctamente (TP, TN), o, en su defecto, un caso menos favorable sería diagnosticarlo como PCR positivo pero que finalmente fuese negaivo (FP), sin embargo, no se deberían cometer fallos a la hora de diagnosticar negativamente a un paciente. 
+
+La métrica relacionada con la correcta clasificación de una muestra como clase positiva (ya sea TP o FP) es el Recall, y el modelo con la combinación de variables que produce un mayor recall es 
+
+```{r}
+lr_model <- glm(PCR ~ Fenotipo+Grado+REst+RPro, data=df_imputado, family="binomial")
+predicciones <- predict(lr_model, type = "response")
+
+pred <- data.frame(
+  y_true = df_imputado$PCR,
+  y_pred = predicciones
+)
+
+threshold = 0.35
+predicciones_truncadas_inicial <- ifelse(predicciones < threshold, 0, 1)
+metricas = calcular_metricas(df_imputado$PCR, predicciones_truncadas_inicial)
+metricas[1]
+metricas[2]
+```
+
+```{r}
+lr_model <- glm(PCR ~ Grado+REst+Edad, data=df_imputado, family="binomial")
+predicciones <- predict(lr_model, type = "response")
+
+pred <- data.frame(
+  y_true = df_imputado$PCR,
+  y_pred = predicciones
+)
+
+threshold = 0.35
+predicciones_truncadas_inicial <- ifelse(predicciones < threshold, 0, 1)
+metricas = calcular_metricas(df_imputado$PCR, predicciones_truncadas_inicial)
+metricas[1]
+metricas[2]
+```
+
 
 # Conclusión
 
